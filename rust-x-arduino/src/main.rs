@@ -1,4 +1,3 @@
-#![feature(alloc)]
 #![no_std]
 #![no_main]
 
@@ -7,10 +6,14 @@ use panic_halt as _;
 
 use embedded_hal::serial::Read;
 use arduino_hal::prelude::*;
+use arduino_hal::port::Pin;
+use core::cell::Cell;
 
-extern crate alloc;
 
-use alloc::boxed::Box;
+struct IOModuleDirect {
+   pin: Cell<Pin>,
+}
+
 
 //
 // Traits
@@ -31,6 +34,9 @@ trait GetMessage {
     fn getMessage(&self, msg: &mut str);
 }
 
+trait SetComponent {
+    fn set(state: bool);
+}
 
 //
 // Structs
@@ -39,14 +45,12 @@ trait GetMessage {
 struct Switch {
     id: &'static str,
     state: bool,
-    check: fn() -> bool,
 }
 
 #[derive(Debug)]
 struct Button {
     id: &'static str,
     state: bool,
-    check: fn() -> bool,
 }
 
 #[derive(Debug)]
@@ -61,26 +65,35 @@ enum LedState {
 struct Led {
     id: &'static str,
     state: LedState,
-    set: Box<dyn Fn(bool)>,
+}
+
+#[derive(Debug)]
+struct SevenSeg {
+    id: &'static str,
+    value: u8,
 }
 
 
-enum Component {
+enum InputComponent {
     Switch(Switch),
     Button(Button),
-    Led(Led),
 }
 
+enum OutputComponent {
+    Led(Led),
+    SevenSeg(SevenSeg),
+}
 
 #[arduino_hal::entry]
 fn main() -> ! {
     let dp = arduino_hal::Peripherals::take().unwrap();
     let pins = arduino_hal::pins!(dp);
-    let mut led = pins.d13.into_output();
+    let foo: bool = pins.d13;
+    let mut led: u32 = pins.d13.into_output();
 
-    let mut components: Vec<_, 3> = Vec::new();
+    let mut components: Vec<OutputComponent, 3> = Vec::new();
 
-    let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
+    let mut serial = arduino_hal::default_serial!(dp, pins, 115200);
     ufmt::uwriteln!(&mut serial, "Hello from Arduino!\r").void_unwrap();
 
     // Read a byte from the serial connection
@@ -90,31 +103,22 @@ fn main() -> ! {
     //    buf[i] = block!(uart_rx.read())?;
     //}
 
-    components.push( 
-        Component::Switch(Switch { 
-            id: "SW1", 
-            state: false,
-            check: || {false},
-        }) );
+//     components.push( 
+//         InputComponent::Switch(Switch { 
+//             id: "SW1", 
+//             state: false,
+//         }) );
+
+//     components.push( 
+//         InputComponent::Button(Button { 
+//             id: "BT1", 
+//             state: false,
+//         }) );
 
     components.push( 
-        Component::Button(Button { 
-            id: "BT1", 
-            state: false,
-            check: || {false},
-        }) );
-
-    components.push( 
-        Component::Led(Led { 
+        OutputComponent::Led(Led { 
             id: "Led", 
             state: LedState::Off,
-            set: |newState| {
-                if newState {
-                    led.set_high();
-                }else {
-                    led.set_low();
-                }
-            },
         }) );
 
     /*

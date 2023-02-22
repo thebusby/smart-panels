@@ -1,6 +1,11 @@
 #include "Panel.h"
 
+#define SERIAL_BUFFER_SIZE 62 // 64 - "\r\n"
 
+
+/*
+ * Define Panel Specific Values here
+*/
 InputComponent *inputs[] =
 {new ButtonComponent("BUT1", new DirectIOMethod(2, iomt_input_pullup))
 ,new ToggleComponent("TOG1", new DirectIOMethod(3, iomt_input_pullup))
@@ -15,56 +20,96 @@ OutputComponent *outputs[] =
 Panel *panel = new Panel("TEST_PANEL", inputs, outputs);
 
 
-void parse_command(char* input, char** cmd, char** id, char** value) {
+/*
+ * Handle general panel logic
+*/
+typedef struct cmd {
+  char *cmd_name;
+  char* (*cmd_func)(char*);
+} cmd_t;
+
+/* Protocol handlers */
+char* com_prot_ident   (char*);
+char* com_prot_ping    (char*);
+char* com_prot_set     (char*);
+char* com_prot_get     (char*);
+
+/* List of commands */
+cmd_t command[] = {
+  { "IDENT",    com_prot_ident },
+  { "PING",     com_prot_ping },
+  { "SET",      com_prot_set },
+  { "GET",      com_prot_get },
+  { 0 }
+};
+
+/* Tokenize space delimited text */
+char* pop_token(char* input, char** next) {
     int i;
+    char* token = input;
 
-    // Always start with command
-    *cmd = input;
-
-    // Terminate command
     for(i=0; input[i]; i++) {
-        if(input[i] == '\t') {
+        if( (input[i] == ' ')
+            || (input[i] == '\t')
+            || (input[i] == '\r')
+            ) { // Handle all whitespace, \r ESPECIALLY!
             input[i] = '\0';
-            i++;
-            break;
+            i++; // Increment into next field
+            *next = &(input[i]);
+
+            return token;
         }
     }
 
-    // Grad the id if it exists
-    if(input[i])
-        *id = &(input[i]);
-
-    for(; input[i]; i++) {
-        if(input[i] == '\t') {
-            input[i] = '\0';
-            i++;
-            break;
-        }
+    // Hit last field
+    if(i>0) {
+        *next = NULL;
+        return token;
     }
 
-    // Grad the value if it exists
-    if(input[i])
-        *value = &(input[i]);
-        
-    // value should already be NULL terminated
+    return NULL;
 }
 
-// cmds
-// IDENT
-// LIST
-// SET ID ON/OFF/TOG
-// POLL ID
+
 
 void setup() {
     Serial.begin(115200);
 }
 
 void loop() {
-    char buf[64];
-    char* cmd;
-    char* id;
-    char* val;
+    char buf[SERIAL_BUFFER_SIZE];
     InputComponent *input = NULL;
+
+    // Check Serial
+    if(Serial.available() > 0) {
+        int i;
+        char* cmd;
+        char* args;
+        String str = Serial.readStringUntil('\n');
+
+        str.toCharArray(buf, (SERIAL_BUFFER_SIZE - 1));
+        buf[SERIAL_BUFFER_SIZE] = '\0'; // NULL terminate, just in case
+
+        cmd = pop_token(buf, &args);
+        if(cmd) {
+            for(i = 0; command[i].cmd_name != 0; i++) {
+                if(strcasecmp(cmd, command[i].cmd_name) == 0)
+                    break;
+            }
+        }
+
+        if(command[i].cmd_name == 0) {
+            Serial.println("ERR Command not found");
+            Serial.flush();
+        } else {
+            char* output = (command[i].cmd_func)(args);
+
+            if(output) {
+                Serial.println(output);
+                Serial.flush();
+            }
+        }
+    }
 
     // Check Inputs
     for(input=inputs[0]; input; input++) {
@@ -75,11 +120,22 @@ void loop() {
         }
     }
 
-    // Check Serial
-    if(Serial.available() > 0) {
-        String str = Serial.readStringUntil('\n');
-    }   
-
 
     delay(10);
+}
+
+char* com_prot_ident   (char* args) {
+    return panel->id;
+}
+
+char* com_prot_ping    (char* args) {
+    return "PONG";
+}
+
+char* com_prot_set     (char* args) {
+    return "TODO";
+}
+
+char* com_prot_get     (char* args) {
+    return "ACK";
 }
