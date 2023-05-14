@@ -6,7 +6,7 @@
 /*
  * Setup IO Expander
  */
-MyPCF8585 PCF = new MyPCF8578();
+MyPCF8575 *PCF = new MyPCF8575(new PCF8575(0x20));
 
 /*
  * Define Panel Specific Values here
