@@ -6,20 +6,44 @@
 
 // Usage notes;
 // 1. Each IOMethod used should have IOMethod.setup() called during setup()
-// 2. update_tc() should be called at start of each loop()
+// 2. tc_updatec() should be called at start of each loop()
 
 
 
 // 
 // Define and handle global "Tick Counter"
 // 
-static uint32_t GLOBAL_TC = 0;
 
-void update_tc() {
+// Define new type, which is milliseconds counter
+// pulled from Arduino millis()
+typedef uint32_t tick;
+
+tick GLOBAL_TC = 0;
+
+void tc_update() {
     GLOBAL_TC = millis();
 }
 
+tick get_tc_alert(unsigned long millis) {
+    tick alert_tc = GLOBAL_TC + millis;
+    return alert_tc;
+}
 
+#define HIGHBIT_MASK(x) (((x) & (1 << 31)) > 0)
+
+bool is_tc_alert(tick) {
+
+    if( HIGHBIT_MASK(tick) == HIGHBIT_MASK(GLOBAL_TC) ) {
+        return GLOBAL_TC > tick;
+    }else{
+        unsigned long diff = tick - GLOBAL_TC;
+
+        if(diff > (1 << 30))
+            return !HIGHBIT_MASK(tick);
+        else
+            return HIGHBIT_MASK(tick);
+    }
+}
 
 
 /*

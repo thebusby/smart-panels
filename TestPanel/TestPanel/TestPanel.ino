@@ -4,6 +4,11 @@
 
 
 /*
+ * Setup IO Expander
+ */
+MyPCF8585 PCF = new MyPCF8578();
+
+/*
  * Define Panel Specific Values here
 */
 InputComponent *inputs[] =
