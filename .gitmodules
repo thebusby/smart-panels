@@ -1,0 +1,3 @@
+[submodule "PCF8575"]
+	path = PCF8575
+	url = https://github.com/RobTillaart/PCF8575.git
