@@ -238,7 +238,8 @@ enum ComponentType {
     button_type, 
     toggle_type, 
     switch_type,
-    led_type, 
+    led_type,
+    rgbled_type, 
     panel_type };
 
 char* getCTypeName(ComponentType type) {
@@ -251,6 +252,8 @@ char* getCTypeName(ComponentType type) {
             return "SWC";
         case led_type:
             return "LED";
+        case rgbled_type:
+            return "RGBLED";
         case panel_type:
             return "PNL";
         default:
@@ -366,16 +369,28 @@ class LedComponent: public OutputComponent {
           _flash_timer = get_tc_alert(_flash_interval);
         }
 
-        void getMessage(char* buf) {
-            char* state_string = _state ? "ONN" : "OFF";
+        char* get_state() {
+          char* state_string = _state ? "ONN" : "OFF";
             if(_flash_timer)
               state_string = "FLASH";
-            sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
+
+          return state_string;
+        }
+
+        void getMessage(char* buf) {
+            sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), get_state());
         }
 
         bool setup() {
             _method->setup();
             return true;
+        }
+
+        void disable() {
+          _flash_timer = 0;
+          
+          if(_state)
+            toggle();
         }
 
     private:
@@ -385,6 +400,77 @@ class LedComponent: public OutputComponent {
         uint32_t _flash_interval = 0;
 };
 
+
+class RGBLedComponent: public OutputComponent {
+    public:
+        RGBLedComponent(char* id, IOMethod* red_method, IOMethod* green_method, IOMethod* blue_method) : OutputComponent(id, rgbled_type) {
+            this->_red   = new LedComponent("RED", red_method);
+            this->_green = new LedComponent("GREEN", green_method);
+            this->_blue  = new LedComponent("BLUE", blue_method);
+        }
+    
+        char* set(char* args) {
+          uint8_t i;
+          LedComponent* leds[] = {_red, _green, _blue, 0};
+          char* color_name;
+          char* params;
+          
+          color_name = pop_token(args, &params);
+
+          if(!color_name)
+            return "ERR SET wanted color name or OFF";
+
+          if(strcasecmp(color_name, "OFF") == 0) {
+             _active->disable();
+             _active = NULL;
+
+             return "ACK";
+           }
+
+           /* Find the color */
+           for(i=0; leds[i]; i++)
+             if(strcasecmp(color_name, leds[i]->id) == 0) {
+               if(_active && _active != leds[i])
+                 _active->disable();
+
+                _active = leds[i];
+                return _active->set(params); 
+              }
+
+          return "ERR failed to find color indicated";
+        }
+
+        void update() {
+          if(_active)
+            _active->update();
+        }
+
+        void getMessage(char* buf) {
+            
+            // Early exit if nothing going on
+            if(!_active) {
+              sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), "OFF");
+              return; 
+            }
+
+          sprintf(buf, "%s\t%s\t%s\t%s", id, getCTypeName(type), _active->id, _active->get_state());
+        }
+
+        bool setup() {
+            _red->setup();
+            _green->setup();
+            _blue->setup();
+            
+            return true;
+        }
+
+    private:
+      LedComponent* _active = NULL;
+      
+      LedComponent* _red;
+      LedComponent* _green;
+      LedComponent* _blue;
+};
 
 class ToggleComponent: public InputComponent {
     public:
@@ -553,7 +639,8 @@ bool Panel::loop() {
     // Check Inputs
     for(i=0; inputs[i]; i++) {
         if(inputs[i]->poll()) {
-            inputs[i]->getMessage(buf);
+            sprintf(buf, "EVENT\t"); 
+            inputs[i]->getMessage(buf+6);
             Serial.println(buf);
             Serial.flush();
         }
