@@ -1,7 +1,10 @@
 #ifndef Panel_h
 #define Panel_h
 #include "Arduino.h" 
-#include "PCF8575.h"
+#include "PCF8575.h" // For PCF8575 IO expander
+#include <SPI.h> // For HW SPI support for ST7920
+#include <U8g2lib.h> // For ST7920 Display
+
 
 #define SERIAL_BUFFER_SIZE 64 // 64 - "\r\n"
 
@@ -403,6 +406,114 @@ class LedComponent: public OutputComponent {
         uint32_t _flash_interval = 0;
 };
 
+
+// U8G2_ST7920_128X64_1_SW_SPI u8g2(U8G2_R0, /* clock=*/ 12, /* data=*/ 11, /* CS=*/ 10, /* reset=*/ 8);
+// U8G2_ST7920_128X64_1_HW_SPI u8g2(U8G2_R0, /* CS=*/ 10, /* reset=*/ 8);
+// U8G2_ST7920_128X64_1_HW_SPI u8g2(U8G2_R0, /* CS=*/ 10);
+class ST7920Component: public OutputComponent {
+    public:
+        ST7920Component(char* id, IOMethod *method) : OutputComponent(id, led_type) {
+            this->_method = method;
+            this->_state = false;
+        }
+
+        char* set(char* args) {
+            char* state_str;
+            char* params;
+            bool new_state;
+            bool state_change = false;
+            
+            state_str = pop_token(args, &params);
+            if(state_str) {
+              if(strcasecmp(state_str, "ONN") == 0) {
+                new_state = true;
+                state_change = true;
+              }
+              if(strcasecmp(state_str, "OFF") == 0) {
+                new_state = false;
+                state_change = true;
+                _flash_timer = 0; /* Disable Flashing */
+              }
+              if(strcasecmp(state_str, "TOG") == 0) {
+                toggle();
+                return "ACK";
+              }
+              if(strcasecmp(state_str, "FLASH") == 0) {
+                int fv = 0;
+                char* param_value;
+
+                param_value = pop_token(params, NULL);
+                if(param_value) {
+                  fv = atoi(param_value);
+                }else
+                  fv = 1000; /* Defalut to 1 second */
+
+                if(fv) {
+                  _flash_interval = fv;
+                  _flash_timer = get_tc_alert(_flash_interval);
+                }else
+                  return "ERR LED FLASH value not handled";
+
+                new_state = true;
+                state_change = true;
+              }
+            }
+
+            if(!state_change)
+              return "ERR LED SET only takes ONN or OFF";
+
+            if(_state != new_state) {
+              _state = new_state;
+              _method->write(_state);
+            }
+
+            return "ACK";
+        }
+
+        void toggle() {
+            _state = !_state;
+            _method->write(_state);
+        }
+
+        void update() {
+          if( !_flash_timer
+            || !is_tc_alert(_flash_timer) )
+            return;
+
+          toggle();
+          _flash_timer = get_tc_alert(_flash_interval);
+        }
+
+        char* get_state() {
+          char* state_string = _state ? "ONN" : "OFF";
+            if(_flash_timer)
+              state_string = "FLASH";
+
+          return state_string;
+        }
+
+        void getMessage(char* buf) {
+            sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), get_state());
+        }
+
+        bool setup() {
+            _method->begin();
+            return true;
+        }
+
+        void disable() {
+          _flash_timer = 0;
+          
+          if(_state)
+            toggle();
+        }
+
+    private:
+        IOMethod *_method;
+        bool _state;
+        tick _flash_timer = 0;
+        uint32_t _flash_interval = 0;
+};
 
 class RGBLedComponent: public OutputComponent {
     public:
