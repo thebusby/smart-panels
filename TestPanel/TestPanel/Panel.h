@@ -146,7 +146,7 @@ class MyPCF8575 {
 
         // Panel calls this after all compononents
         bool setup() {
-            _module->write16(_dataOut);
+            _module->begin(_dataOut);
 
             return true;
         }
