@@ -59,8 +59,12 @@ char* pop_token(char* input, char** next) {
             || (input[i] == '\r')
             ) { // Handle all whitespace, \r ESPECIALLY!
             input[i] = '\0';
+
             i++; // Increment into next field
-            *next = &(input[i]);
+            if(input[i] != '\n')
+                *next = &(input[i]);
+            else
+                *next = NULL; // Return NULL if we hit \r\n
 
             return token;
         }

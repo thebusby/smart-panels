@@ -258,6 +258,7 @@ class Component {
         ComponentType type;
 
         virtual void getMessage(char*) = 0;
+        virtual bool setup() = 0;
 
         Component(char* id, ComponentType type) {
             this->id = id;
@@ -307,6 +308,11 @@ class LedComponent: public OutputComponent {
             sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
         }
 
+        bool setup() {
+            _method->setup();
+            return true;
+        }
+
     private:
         IOMethod *_method;
         bool _state;
@@ -331,6 +337,11 @@ class ToggleComponent: public InputComponent {
         void getMessage(char* buf) {
             char* state_string = _state ? "ONN" : "OFF";
             sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
+        }
+
+        bool setup() {
+            _method->setup();
+            return true;
         }
 
     private:
@@ -359,6 +370,11 @@ class ButtonComponent: public InputComponent {
             sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
         }
 
+        bool setup() {
+            _method->setup();
+            return true;
+        }
+
     private:
         IOMethod *_method;
         bool _state;
@@ -379,6 +395,20 @@ class Panel: public Component {
 
         void getMessage(char* buf) {
             sprintf(buf, "%s\t%s", this->id, getCTypeName(this->type));
+        }
+
+        bool setup() {
+            int i;
+
+            for(i=0; inputs[i]; i++)
+                if(!inputs[i]->setup())
+                    return false;
+
+            for(i=0; outputs[i]; i++)
+                if(!outputs[i]->setup())
+                    return false;
+
+            return true;
         }
 };
 
