@@ -11,8 +11,8 @@ MyPCF8575 *PCF = new MyPCF8575(new PCF8575(0x20));
  * Define Panel Specific Values here
 */
 InputComponent *inputs[] =
-{new ButtonComponent("BUT1", new DirectIOMethod(2, iomt_input_pullup))
-,new ToggleComponent("TOG1", new DirectIOMethod(3, iomt_input_pullup))
+{new ButtonComponent("BUT1", new DirectIOMethod(3, iomt_input_pullup))
+//,new ToggleComponent("TOG1", new DirectIOMethod(3, iomt_input_pullup))
 ,NULL
 };
 
@@ -34,9 +34,12 @@ void setup() {
     }
 
     // Initialize IO expander
-    if(!PCF->setup()) {
+    //if(!PCF->setup()) {
         // IO Expander init failed, do something!
-    }
+    //}
+
+    // Serial.println("SETUP: SUCCESS");
+    // Serial.flush();
 }
 
 void loop() {

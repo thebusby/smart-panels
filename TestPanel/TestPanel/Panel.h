@@ -7,6 +7,13 @@
 
 
 
+//
+// Utility definitions
+//
+char* pop_token(char*, char**);
+
+
+
 // 
 // Define and handle global "Tick Counter"
 // 
@@ -170,7 +177,7 @@ class MyPCF8575 {
         }
 
     private:
-        PCF8575 *_module;
+        PCF8575* _module;
         uint32_t _tc;
         uint16_t _dataIn;
         uint16_t _dataOut;
@@ -278,7 +285,7 @@ class OutputComponent: public Component {
         OutputComponent(char* id, ComponentType type) : Component(id, type) {};
 
         // For now, enables/disables a pin
-        virtual void set(bool) = 0;
+        virtual char* set(char*) = 0;
 };
 
 
@@ -293,13 +300,37 @@ class LedComponent: public OutputComponent {
             this->_state = false;
         }
 
-        void set(bool state) {
-            _state = state;
-            _method->write(_state);
+        char* set(char* args) {
+            char* state_str;
+            bool new_state;
+            bool state_change = false;
+            
+            state_str = pop_token(args, NULL);
+            if(state_str) {
+              if(strcasecmp(state_str, "ONN") == 0) {
+                new_state = true;
+                state_change = true;
+              }
+              if(strcasecmp(state_str, "OFF") == 0) {
+                new_state = false;
+                state_change = true;
+              }
+            }
+
+            if(!state_change)
+              return "ERR LED SET only takes ONN or OFF";
+
+            if(_state != new_state) {
+              _state = new_state;
+              _method->write(_state);
+            }
+
+            return "ACK";
         }
 
         void toggle() {
-            set(!_state);
+            _state = !_state;
+            _method->write(_state);
         }
 
         void getMessage(char* buf) {
@@ -388,6 +419,7 @@ class Panel: public Component {
     public:
         InputComponent **inputs;
         OutputComponent **outputs;
+        char buf[SERIAL_BUFFER_SIZE];
 
         Panel(char* id, InputComponent** inputs, OutputComponent** outputs): Component(id, panel_type) {
             this->inputs = inputs;
@@ -455,18 +487,17 @@ char* pop_token(char* input, char** next) {
             input[i] = '\0';
 
             i++; // Increment into next field
-            // if(input[i] != '\n') // This is handled by NULL termination of string
-                *next = &(input[i]);
-            // else
-            //    *next = NULL; // Return NULL if we hit \r\n
-
+            if(next)
+              *next = &(input[i]);
+            
             return token;
         }
     }
 
     // Hit last field
     if(i>0) {
-        *next = NULL;
+        if(next)
+          *next = NULL;
         return token;
     }
 
@@ -477,15 +508,22 @@ char* pop_token(char* input, char** next) {
 
 
 bool Panel::loop() {
-    char buf[SERIAL_BUFFER_SIZE];
-    InputComponent *input = NULL;
-
+    uint8_t i;
+    
     // Increment Tick counter
     tc_update();
 
+    // Check Inputs
+    for(i=0; inputs[i]; i++) {
+        if(inputs[i]->poll()) {
+            inputs[i]->getMessage(buf);
+            Serial.println(buf);
+            Serial.flush();
+        }
+    }
+
     // Check Serial
     if(Serial.available() > 0) {
-        int i;
         char* cmd;
         char* args;
         String str = Serial.readStringUntil('\n');
@@ -504,6 +542,7 @@ bool Panel::loop() {
         if(command[i].cmd_name == 0) {
             Serial.println("ERR Command not found");
             Serial.flush();
+
         } else {
             char* output = (command[i].cmd_func)(this, args);
 
@@ -514,14 +553,6 @@ bool Panel::loop() {
         }
     }
 
-    // Check Inputs
-    for(input=inputs[0]; input; input++) {
-        if(input->poll()) {
-            input->getMessage(buf);
-            Serial.println(buf);
-            Serial.flush();
-        }
-    }
 
 
     delay(10);
@@ -537,11 +568,43 @@ char* com_prot_ping    (Panel* panel, char* args) {
 }
 
 char* com_prot_desc    (Panel* panel, char* args) {
-    return "DESC";
+    uint8_t i;
+    
+    // Describe inputs
+    for(i=0; panel->inputs[i]; i++) {
+      panel->inputs[i]->getMessage(panel->buf);
+      Serial.println(panel->buf);
+      Serial.flush();
+    }
+
+    // Describe outputs
+    for(i=0; panel->outputs[i]; i++) {
+      panel->outputs[i]->getMessage(panel->buf);
+      Serial.println(panel->buf);
+      Serial.flush();
+    }
+
+    return "ACK";
 }
 
 char* com_prot_set     (Panel* panel, char* args) {
-    return "TODO";
+  uint8_t i;
+  char* comp_name = NULL;
+  char* params = NULL;
+
+  comp_name = pop_token(args, &params);
+  if(comp_name) {
+    for(i=0; panel->outputs[i]; i++)
+      if(strcasecmp(comp_name, panel->outputs[i]->id) == 0)
+        break;
+  }else{
+    return "ERR\tComponent name not found in SET command";
+  }
+
+  if(panel->outputs[i])
+    return panel->outputs[i]->set(params);
+  else
+    return "ERR\tComponent not found in SET command";
 }
 
 char* com_prot_get     (Panel* panel, char* args) {
