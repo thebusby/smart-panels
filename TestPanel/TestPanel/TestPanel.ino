@@ -55,8 +55,11 @@ Panel *panel = new Panel("BUTTON_PANEL", inputs, outputs);
 */
 
 InputComponent *inputs[] =
-{new ButtonComponent("BUTTON", new DirectIOMethod(3, iomt_input_pullup))
+{
+// new ButtonComponent("BUTTON", new DirectIOMethod(3, iomt_input_pullup))
+new ButtonComponent("BUTTON", new PCF8575IOMethod(PCF, 8, iomt_input_pullup))
 ,new ButtonComponent("RE_BUT", new DirectIOMethod(9, iomt_input_pullup))
+,new EncoderComponent("DIAL", new DirectIOMethod(7, iomt_input), new DirectIOMethod(8, iomt_input))
 ,NULL
 };
 
@@ -73,10 +76,6 @@ Panel *panel = new Panel("TEST_PANEL", inputs, outputs);
 void setup() {
     Serial.begin(115200);
 
-
-    Serial.println("SETUP: START");
-    Serial.flush();
-
     // Initialize panel
     if(!panel->setup()) {
       Serial.println("Panel init failed, do something!");
@@ -88,9 +87,6 @@ void setup() {
       Serial.println("IO Expander init failed, do something!");
       Serial.flush();
     }
-
-    Serial.println("SETUP: SUCCESS");
-    Serial.flush();
 }
 
 void loop() {

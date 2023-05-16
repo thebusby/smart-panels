@@ -238,6 +238,7 @@ enum ComponentType {
     button_type, 
     toggle_type, 
     switch_type,
+    encoder_type,
     led_type,
     rgbled_type, 
     panel_type };
@@ -250,6 +251,8 @@ char* getCTypeName(ComponentType type) {
             return "TOG";
         case switch_type:
             return "SWC";
+        case encoder_type:
+            return "ENC";
         case led_type:
             return "LED";
         case rgbled_type:
@@ -470,6 +473,54 @@ class RGBLedComponent: public OutputComponent {
       LedComponent* _red;
       LedComponent* _green;
       LedComponent* _blue;
+};
+
+class EncoderComponent: public InputComponent {
+    public:
+        EncoderComponent(char* id, IOMethod *clk, IOMethod *dt) : InputComponent(id, encoder_type) {
+            this->_clk = clk;
+            this->_dt = dt;
+        }
+
+        bool poll(){
+          _dir = NULL;
+
+          _currentStateCLK = _clk->read();
+
+          if((_currentStateCLK != _lastStateCLK)
+             && _currentStateCLK){
+
+               if (_dt->read() != _currentStateCLK) {
+                 _counter++;
+                 _dir = "RIGHT";
+               }else{
+                 _counter--;
+                 _dir = "LEFT";
+               }
+          }
+          _lastStateCLK = _currentStateCLK;
+
+          return (_dir != NULL);
+        }
+
+        void getMessage(char* buf) {
+            sprintf(buf, "%s\t%s\t%s\t%d", id, getCTypeName(type), _dir, _counter);
+        }
+
+        bool setup() {
+            _clk->setup();
+            _dt->setup();
+
+            return true;
+        }
+
+    private:
+        IOMethod* _clk;
+        IOMethod* _dt;
+        bool _currentStateCLK = false;
+        bool _lastStateCLK = false;
+        int _counter = 0;
+        char* _dir = NULL;
 };
 
 class ToggleComponent: public InputComponent {
