@@ -17,7 +17,10 @@ InputComponent *inputs[] =
 };
 
 OutputComponent *outputs[] =
-{new LedComponent("LED1", new DirectIOMethod(LED_BUILTIN, iomt_output))
+{new LedComponent("ILED", new DirectIOMethod(LED_BUILTIN, iomt_output))
+,new LedComponent("RGBLEDR", new DirectIOMethod(4, iomt_output))
+,new LedComponent("RGBLEDG", new DirectIOMethod(5, iomt_output))
+,new LedComponent("RGBLEDB", new DirectIOMethod(6, iomt_output))
 ,NULL
 };
 

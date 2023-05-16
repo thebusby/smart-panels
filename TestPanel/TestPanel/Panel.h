@@ -274,9 +274,8 @@ class Component {
 
 class InputComponent: public Component {
     public:
-        InputComponent(char* id, ComponentType type) : Component(id, type) {};
+        InputComponent(char* id, ComponentType type) : Component(id, type) {};   
 
-        // Indicates whether a state change exists
         virtual bool poll() = 0;
 };
 
@@ -284,8 +283,8 @@ class OutputComponent: public Component {
     public:
         OutputComponent(char* id, ComponentType type) : Component(id, type) {};
 
-        // For now, enables/disables a pin
         virtual char* set(char*) = 0;
+        virtual void update() = 0;
 };
 
 
@@ -302,10 +301,11 @@ class LedComponent: public OutputComponent {
 
         char* set(char* args) {
             char* state_str;
+            char* params;
             bool new_state;
             bool state_change = false;
             
-            state_str = pop_token(args, NULL);
+            state_str = pop_token(args, &params);
             if(state_str) {
               if(strcasecmp(state_str, "ONN") == 0) {
                 new_state = true;
@@ -313,6 +313,30 @@ class LedComponent: public OutputComponent {
               }
               if(strcasecmp(state_str, "OFF") == 0) {
                 new_state = false;
+                state_change = true;
+                _flash_timer = 0; /* Disable Flashing */
+              }
+              if(strcasecmp(state_str, "TOG") == 0) {
+                toggle();
+                return "ACK";
+              }
+              if(strcasecmp(state_str, "FLASH") == 0) {
+                int fv = 0;
+                char* param_value;
+
+                param_value = pop_token(params, NULL);
+                if(param_value) {
+                  fv = atoi(param_value);
+                }else
+                  fv = 1000; /* Defalut to 1 second */
+
+                if(fv) {
+                  _flash_interval = fv;
+                  _flash_timer = get_tc_alert(_flash_interval);
+                }else
+                  return "ERR LED FLASH value not handled";
+
+                new_state = true;
                 state_change = true;
               }
             }
@@ -333,8 +357,19 @@ class LedComponent: public OutputComponent {
             _method->write(_state);
         }
 
+        void update() {
+          if( !_flash_timer
+            || !is_tc_alert(_flash_timer) )
+            return;
+
+          toggle();
+          _flash_timer = get_tc_alert(_flash_interval);
+        }
+
         void getMessage(char* buf) {
             char* state_string = _state ? "ONN" : "OFF";
+            if(_flash_timer)
+              state_string = "FLASH";
             sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
         }
 
@@ -346,6 +381,8 @@ class LedComponent: public OutputComponent {
     private:
         IOMethod *_method;
         bool _state;
+        tick _flash_timer = 0;
+        uint32_t _flash_interval = 0;
 };
 
 
@@ -522,6 +559,10 @@ bool Panel::loop() {
         }
     }
 
+    // Check Outputs for auto-state changes
+    for(i=0; outputs[i]; i++) 
+        outputs[i]->update();
+    
     // Check Serial
     if(Serial.available() > 0) {
         char* cmd;
