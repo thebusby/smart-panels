@@ -534,6 +534,54 @@ class ButtonComponent: public InputComponent {
 };
 
 
+class SwitchComponent: public InputComponent {
+    public:
+        SwitchComponent(char* id, IOMethod** methods) : InputComponent(id, switch_type) {
+            this->_methods = _methods;
+        }
+
+        bool poll(){
+            uint8_t new_active = find_active();
+
+            if(new_active != _active) {
+                _active = new_active;
+                return true;
+            }
+            return false;
+        }
+
+        void getMessage(char* buf) {
+            sprintf(buf, "%s\t%s\t%d", id, getCTypeName(type), _active);
+        }
+
+        bool setup() {
+            uint8_t i;
+
+            for(i=0; _methods[i]; i++)
+                _methods[i]->setup();
+
+            return true;
+        }
+
+    private:
+        uint8_t find_active() {
+            uint8_t i;
+
+            for(i=0; _methods[i]; i++)
+                if(_methods[i]->read())
+                    break;
+
+            if(!_methods[i])
+                return 666;
+
+            return i;
+        }
+
+        IOMethod** _methods;
+        uint8_t _active;
+};
+
+
 
 //
 // Define a panel
