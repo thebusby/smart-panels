@@ -40,7 +40,7 @@ InputComponent *inputs[] =
 
 ,new ToggleComponent("TOGGLE", new DirectIOMethod(12, iomt_input_pullup)) // Doesn't work yet.
 
-,new EncoderComponent("DIAL_T", new PCF8575IOMethod(PCF, 8, iomt_input), new PCF8575IOMethod(PCF, 9, iomt_input))
+,new EncoderComponent("DIAL_T", new PCF8575IOMethod(PCF, 8, iomt_input_pullup), new PCF8575IOMethod(PCF, 9, iomt_input_pullup))
 //,new ButtonComponent("DIAL_T_BUT", new DirectIOMethod(12, iomt_input_pullup)) // Doesn't work yet.
 
 ,new EncoderComponent("DIAL_L", new DirectIOMethod(A0, iomt_input), new DirectIOMethod(A1, iomt_input))
