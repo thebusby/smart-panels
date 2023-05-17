@@ -410,6 +410,7 @@ class LedComponent: public OutputComponent {
 // U8G2_ST7920_128X64_1_SW_SPI u8g2(U8G2_R0, /* clock=*/ 12, /* data=*/ 11, /* CS=*/ 10, /* reset=*/ 8);
 // U8G2_ST7920_128X64_1_HW_SPI u8g2(U8G2_R0, /* CS=*/ 10, /* reset=*/ 8);
 // U8G2_ST7920_128X64_1_HW_SPI u8g2(U8G2_R0, /* CS=*/ 10);
+/*
 class ST7920Component: public OutputComponent {
     public:
         ST7920Component(char* id, IOMethod *method) : OutputComponent(id, led_type) {
@@ -432,7 +433,7 @@ class ST7920Component: public OutputComponent {
               if(strcasecmp(state_str, "OFF") == 0) {
                 new_state = false;
                 state_change = true;
-                _flash_timer = 0; /* Disable Flashing */
+                _flash_timer = 0; // Disable Flashing 
               }
               if(strcasecmp(state_str, "TOG") == 0) {
                 toggle();
@@ -446,7 +447,7 @@ class ST7920Component: public OutputComponent {
                 if(param_value) {
                   fv = atoi(param_value);
                 }else
-                  fv = 1000; /* Defalut to 1 second */
+                  fv = 1000; // Defalut to 1 second 
 
                 if(fv) {
                   _flash_interval = fv;
@@ -514,6 +515,7 @@ class ST7920Component: public OutputComponent {
         tick _flash_timer = 0;
         uint32_t _flash_interval = 0;
 };
+*/
 
 class RGBLedComponent: public OutputComponent {
     public:
@@ -699,11 +701,15 @@ class ButtonComponent: public InputComponent {
 class SwitchComponent: public InputComponent {
     public:
         SwitchComponent(char* id, IOMethod** methods) : InputComponent(id, switch_type) {
-            this->_methods = _methods;
+            this->_methods = methods;
         }
 
         bool poll(){
             uint8_t new_active = find_active();
+
+            // Ignore case we're in the middle of rotating the switch
+            if(new_active == 0xFF)
+              return false;
 
             if(new_active != _active) {
                 _active = new_active;
@@ -718,9 +724,9 @@ class SwitchComponent: public InputComponent {
 
         bool setup() {
             uint8_t i;
-
-            for(i=0; _methods[i]; i++)
+            for(i=0; _methods[i]; i++) {
                 _methods[i]->setup();
+            }
 
             return true;
         }
@@ -734,13 +740,13 @@ class SwitchComponent: public InputComponent {
                     break;
 
             if(!_methods[i])
-                return 666;
+                return 0xFF;
 
             return i;
         }
 
-        IOMethod** _methods;
-        uint8_t _active;
+        IOMethod** _methods = NULL;
+        uint8_t _active = 0xFF;
 };
 
 
