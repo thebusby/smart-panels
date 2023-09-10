@@ -448,16 +448,18 @@ class ST7920Component : public OutputComponent {
 public:
   ST7920Component(char* id, uint8_t cs_pin)
     : OutputComponent(id, loglcd_type) {
-    // 12, // clock
-    // 11, // data
-    // 10, // CS
-    // 8); // reset
+      this->_cs_pin = cs_pin;
+      // 12, // clock
+      // 11, // data
+      // 10, // CS
+      // 8); // reset
   }
 
   char* set(char* args) {
     char* line_num;
     char* pos;
-    int lcd_pos;
+    uint8_t pos_num;
+    uint8_t lcd_pos;
     char* params;
     char* output;
 
@@ -465,32 +467,41 @@ public:
     if (!line_num)
       return "ERR SET wanted line num";
 
-    pos = pop_token(params, &output);
-    if (!pos)
-      return "ERR SET needs line pos after line num";
-
-    lcd_pos = atoi(pos);
-    if (!((lcd_pos >= 0) && (lcd_pos < 16)))
-      return "ERR SET line pos not between 0-15";
-
     switch (line_num[0]) {
       case '1':
-        lcd_pos += LCD_LINE0;
+        lcd_pos = LCD_LINE0;
         break;
       case '2':
-        lcd_pos += LCD_LINE1;
+        lcd_pos = LCD_LINE1;
         break;
       case '3':
-        lcd_pos += LCD_LINE2;
+        lcd_pos = LCD_LINE2;
         break;
       case '4':
-        lcd_pos += LCD_LINE3;
+        lcd_pos = LCD_LINE3;
         break;
       default:
         return "ERR SET invalid line num";
     }
 
-    printTxt(lcd_pos, output);
+    pos = pop_token(params, &output);
+    if (!pos)
+      return "ERR SET needs line pos after line num";
+
+    // Clear the entire line
+    if(strcasecmp(pos, "CLR") == 0) 
+    {
+      printTxt(lcd_pos, "                ");
+
+      return "ACK";
+    }
+
+    // Determine position (by 2) in the line
+    pos_num = atoi(pos);
+    if (!((pos_num >= 0) && (pos_num < 16)))
+      return "ERR SET line pos not between 0-15";
+
+    printTxt((lcd_pos + pos_num), output);
 
     return "ACK";
   }
