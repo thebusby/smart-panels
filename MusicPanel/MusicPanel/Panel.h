@@ -417,6 +417,97 @@ private:
 };
 
 
+//
+// LCD20X4_SUPPORT
+//
+#ifdef LCD20X4_SUPPORT
+
+class LCD20X4Component : public OutputComponent {
+public:
+  ST7920Component(char* id, uint8_t i2c_address)
+    : OutputComponent(id, loglcd_type) {
+      this->_i2c_address = i2c_address;
+  }
+
+  char* set(char* args) {
+    char* line_num;
+    char* pos;
+    uint8_t pos_num;
+    uint8_t lcd_pos;
+    char* params;
+    char* output;
+
+    line_num = pop_token(args, &params);
+    if (!line_num)
+      return "ERR SET wanted line num";
+
+    switch (line_num[0]) {
+      case '1':
+        lcd_pos = LCD_LINE0;
+        break;
+      case '2':
+        lcd_pos = LCD_LINE1;
+        break;
+      case '3':
+        lcd_pos = LCD_LINE2;
+        break;
+      case '4':
+        lcd_pos = LCD_LINE3;
+        break;
+      default:
+        return "ERR SET invalid line num";
+    }
+
+    pos = pop_token(params, &output);
+    if (!pos)
+      return "ERR SET needs line pos after line num";
+
+    // Clear the entire line
+    if(strcasecmp(pos, "CLR") == 0) 
+    {
+      printTxt(lcd_pos, "                    "); // Write 20 spaces
+
+      return "ACK";
+    }
+
+    // Determine position (by 2) in the line
+    pos_num = atoi(pos);
+    if (!((pos_num >= 0) && (pos_num < 20)))
+      return "ERR SET line pos not between 0-19";
+
+    printTxt((lcd_pos + pos_num), output);
+
+    return "ACK";
+  }
+
+  void update() {
+    // We do nothing on update()
+  }
+
+  void getMessage(char* buf) {
+    sprintf(buf, "%s\t%s", id, getCTypeName(type));
+  }
+
+  bool setup() {
+
+    return true;
+  }
+
+private:
+  uint8_t _i2c_address;
+
+  void printTxt(uint8_t pos, char* str) {
+    
+  }
+};
+
+
+#endif // #ifdef LCD20X4_SUPPORT
+
+
+//
+// ST7920_SUPPORT
+//
 #ifdef ST7920_SUPPORT
 
 #include <SPI.h>  // For HW SPI support for ST7920
