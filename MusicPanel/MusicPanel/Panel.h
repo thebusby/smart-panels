@@ -445,6 +445,38 @@ public:
     if (!line_num)
       return "ERR SET wanted line num";
 
+    // Clear the entire screen
+    if(strcasecmp(line_num, "CLR") == 0) 
+    {
+      _lcd->clear();
+
+      return "ACK";
+    }
+
+    // Handle backlight
+    if(strcasecmp(line_num, "LIGHT") == 0) 
+    {
+      if(strcasecmp(params, "ONN") == 0) {
+        _backlight = true;
+      }else{
+        if(strcasecmp(params, "OFF") == 0) {
+          _backlight = false;
+        }else{
+          // Toggle Backlight
+          _backlight = !_backlight;
+        }  
+      }      
+
+      if(_backlight) {
+        _lcd->backlight();
+      } else {
+        _lcd->noBacklight();
+      }
+
+      return "ACK";
+    }
+
+    // Treat it as a one digit line number
     switch (line_num[0]) {
       case '1':
         lcd_line = 0;
@@ -495,12 +527,14 @@ public:
   bool setup() {
     _lcd->init();
     _lcd->backlight(); // Enable backlight by default?
+    _backlight = true;  
 
     return true;
   }
 
 private:
    LiquidCrystal_I2C* _lcd;
+   bool _backlight;
 
   void printTxt(uint8_t line, uint8_t pos, char* str) {
     _lcd->setCursor(pos, line);
