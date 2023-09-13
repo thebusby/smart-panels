@@ -422,18 +422,22 @@ private:
 //
 #ifdef LCD20X4_SUPPORT
 
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+
+
 class LCD20X4Component : public OutputComponent {
 public:
-  ST7920Component(char* id, uint8_t i2c_address)
+  LCD20X4Component(char* id, uint8_t i2c_address)
     : OutputComponent(id, loglcd_type) {
-      this->_i2c_address = i2c_address;
+      this->_lcd = new LiquidCrystal_I2C(i2c_address, 20, 4);
   }
 
   char* set(char* args) {
     char* line_num;
     char* pos;
     uint8_t pos_num;
-    uint8_t lcd_pos;
+    uint8_t lcd_line;
     char* params;
     char* output;
 
@@ -443,16 +447,16 @@ public:
 
     switch (line_num[0]) {
       case '1':
-        lcd_pos = LCD_LINE0;
+        lcd_line = 0;
         break;
       case '2':
-        lcd_pos = LCD_LINE1;
+        lcd_line = 1;
         break;
       case '3':
-        lcd_pos = LCD_LINE2;
+        lcd_line = 2;
         break;
       case '4':
-        lcd_pos = LCD_LINE3;
+        lcd_line = 3;
         break;
       default:
         return "ERR SET invalid line num";
@@ -465,7 +469,7 @@ public:
     // Clear the entire line
     if(strcasecmp(pos, "CLR") == 0) 
     {
-      printTxt(lcd_pos, "                    "); // Write 20 spaces
+      printTxt(lcd_line, 0, "                    "); // Write 20 spaces
 
       return "ACK";
     }
@@ -475,7 +479,7 @@ public:
     if (!((pos_num >= 0) && (pos_num < 20)))
       return "ERR SET line pos not between 0-19";
 
-    printTxt((lcd_pos + pos_num), output);
+    printTxt(lcd_line, pos_num, output);
 
     return "ACK";
   }
@@ -489,15 +493,18 @@ public:
   }
 
   bool setup() {
+    _lcd->init();
+    _lcd->backlight(); // Enable backlight by default?
 
     return true;
   }
 
 private:
-  uint8_t _i2c_address;
+   LiquidCrystal_I2C* _lcd;
 
-  void printTxt(uint8_t pos, char* str) {
-    
+  void printTxt(uint8_t line, uint8_t pos, char* str) {
+    _lcd->setCursor(pos, line);
+    _lcd->print(str);
   }
 };
 

@@ -1,5 +1,6 @@
 // #define ST7920_SUPPORT
-// #define PCF8575_SUPPORT 
+// #define PCF8575_SUPPORT
+#define LCD20X4_SUPPORT 
 #include "Panel.h"
 
 /*
@@ -20,7 +21,7 @@ new ButtonComponent("BUTTON", new DirectIOMethod(8, iomt_input_pullup))
 OutputComponent *outputs[] =
 {
 new RGBLedComponent("RGBLED", new DirectIOMethod(12, iomt_output), new DirectIOMethod(11, iomt_output), new DirectIOMethod(10, iomt_output) )
-// ,new LCD20X4Component("LCD", 0x27) // Where 0x27 is the I2C address of the LCD20X4
+,new LCD20X4Component("LCD", 0x27) // Where 0x27 is the I2C address of the LCD20X4
 ,NULL
 };
 
