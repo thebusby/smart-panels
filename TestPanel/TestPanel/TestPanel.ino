@@ -23,8 +23,9 @@ new ButtonComponent("BUTTON", new PCF8575IOMethod(PCF, 8, iomt_input_pullup))
 OutputComponent *outputs[] =
 {
   // new LedComponent("ILED", new DirectIOMethod(LED_BUILTIN, iomt_output))
-new ST7920Component("LCD", 10) // Where 10 is the CS pin
-,new RGBLedComponent("RGBLED", new DirectIOMethod(4, iomt_output), new DirectIOMethod(5, iomt_output), new DirectIOMethod(6, iomt_output) )
+// new ST7920Component("LCD", 10) // Where 10 is the CS pin
+// new LedComponent("TLED", new PCF8575IOMethod(PCF, 0, iomt_output))
+new RGBLedComponent("RGBLED", new DirectIOMethod(4, iomt_output), new DirectIOMethod(5, iomt_output), new DirectIOMethod(6, iomt_output) )
 ,NULL
 };
 
