@@ -1,5 +1,12 @@
 #!/usr/bin/python
-
+#
+# serv.py
+# A simple script to act as a relay between smart-panels
+# connected via USB (usually to a RBPi zero) and a 
+# network client on a desktop computer. 
+# 
+# NOTE: Install PySerial via following command;
+#       python -m pip install pyserial 
 import re
 import time
 import socket
@@ -257,11 +264,10 @@ def pop_token(line: str):
     """
     Pull the first token off a string, and return the remainder
     """
-    (x, *xs) = line.split(" ", 1)
-    if xs:
-        return [x, xs[0]]
-    else:
-        return [x, None]
+    tokens = line.split(" ", 1)
+    token = tokens.pop(0)
+    rest = tokens[0] if tokens else None
+    return (token, rest)
 
 
 def handle_network_command(conn) -> bool:
@@ -272,7 +278,11 @@ def handle_network_command(conn) -> bool:
     :param conn: Some kind of connection/file descriptor
     :return: True for success, False otherwise?
     """
-    data = conn.recv(1024)
+    try:
+        data = conn.recv(1024)
+    except OSError as err:
+        print(f"DISCONNECT\tOSError on recv\t{type(err)=}\t{err=}")
+        return False
 
     # The case the connection is closed
     if not data:
@@ -281,7 +291,14 @@ def handle_network_command(conn) -> bool:
     # Figure out who this command is addressed to
     (addr, cline) = pop_token(data.decode().strip())
 
+    # Produce send() to standardize below
     send = get_send_fn(conn)
+
+    # Validate input
+    if cline is None:
+        send("ERR\tMalformed command")
+        print(f"Malformed command: {data}\n")
+        return True
 
     try:
         if addr == "SERV":
@@ -291,7 +308,11 @@ def handle_network_command(conn) -> bool:
                 for (device, desc, _) in list_ports.grep("^/dev/ttyUSB.*"):
                     send(f"{device}\t{desc}")
 
-            if cmd == "OPEN":
+            elif cmd == "OPEN":
+                if params is None:
+                    send("ERR\tMust provide port to open")
+                    return True
+
                 panel = Panel(params)
 
                 try:
@@ -302,15 +323,28 @@ def handle_network_command(conn) -> bool:
                     print(f"EXCEPTION\t{err=}\t{type(err)}")
                     print(traceback.format_exc())
                     send(f"ERR\t{err=}")
+                    return True
 
-                if not panel.ident:
-                    print(
-                        f"ERROR\tFailed to open {params}. No ident returned by open()")
-                else:
+                if panel.ident is not None:
                     Panel.add_panel(panel)
                     send(panel.ident)
 
-            if cmd == "CLOSE":
+            elif cmd == "OPENALL":
+                for (device, desc, _) in list_ports.grep("^/dev/ttyUSB.*"):
+                    try:
+                        panel = Panel(device)
+                        panel.open()
+                        
+                        if panel.ident is not None:
+                            send(f"{panel.ident}\t{device}")
+                    except Exception as err:
+                        print(f"OPENALL\tERR\t{device}\t{type(err)=}\t{err=}")
+
+            elif cmd == "CLOSE":
+                if params is None:
+                    send("ERR\tMust provide panel IDENT to close")
+                    return True
+
                 panel = Panel.panels.get(params)
                 if panel is None:
                     send(f"ERR\tPanel '{params}' is not found")
@@ -319,12 +353,19 @@ def handle_network_command(conn) -> bool:
                     panel.close()
                     Panel.delete_panel(params)
 
-            if cmd == "AVAIL":
+            elif cmd == "AVAIL":
                 for panel in Panel.panels.keys():
                     send(panel)
 
-            if cmd == "DEBUG":
+            elif cmd == "DEBUG":
+                if params is None:
+                    send("ERR\tMust provide provide panel ident and command")
+                    return True
+
                 (panel_name, op) = pop_token(params)
+                if op is None:
+                    send("ERR\tDEBUG, panel command not found")
+                    return True
 
                 panel = Panel.panels.get(panel_name)
                 if panel is None:
@@ -332,7 +373,7 @@ def handle_network_command(conn) -> bool:
                 else:
                     send(panel.cmd(op))
 
-            if cmd == "PING":
+            elif cmd == "PING":
                 send("PONG")
 
             send("ACK")
