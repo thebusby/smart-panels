@@ -1,314 +1,447 @@
 #!/usr/bin/python
-#
-# serv.py
-# A simple script to act as a relay between smart-panels
-# connected via USB (usually to a RBPi zero) and a 
-# network client on a desktop computer. 
-# 
-# NOTE: Install PySerial via following command;
-#       python -m pip install pyserial 
+
+import re
+import time
 import socket
 import select
-import time
-import re
 import traceback
+from collections.abc import Callable
+
 import serial
-import serial.tools.list_ports
+from serial.tools import list_ports
 
 
-# 
-# CONSTANTS
-# 
-DEVICE_RESPONSE_DELAY=1.0 # Delay after sending command to panel to wait for a response
-HEALTHCHECK_TIME=120 # Seconds between health checks
+# Delay after sending command to panel to wait for a response
+DEVICE_RESPONSE_DELAY_INIT = 0.1
+DEVICE_RESPONSE_DELAY = 1.0
+# Seconds between health checks
+HEALTHCHECK_TIME = 120
+# Whether we should shutdown of an top level exception or not
+SHUTDOWN_ON_EXCEPTION = False
 
 
-# 
-# Manage some global state
-# 
-panels = {}
+class PanelTimeoutException(Exception):
+    "Raised when a panel timeout's on command"
+    pass
 
 
-# 
-# Define Panel
-# 
 class Panel:
-    # Define member variables here
-    #
-    # sport is the Serial Port Ex. /dev/tty.USB0
-    # ser is the serial port connection
-    # ts is a timestamp of the last contact with the device
-    # ident is the device identifier
+    """
+    Represents a digital panel that can send and receive messages/commands
+    over a serial connection on the designated port.
 
+    Optionally manages a collection of panels for pseudo-global state. Example:
+    > Panel.panels
+    {}
+    > Panel.add_panel("panel one", Panel(999))
+    > Panel.panels
+    {'panel 1': <__main__.Panel object...>, 'panel 2': <__main__.Panel object...>}
+    > Panel.delete_panel("panel 1")
+    > Panel.panels
+    {'panel 2': <__main__.Panel object...>}
+    """
+    port = None
+    connection = None
+    last_contact_ts = None
+    ident = None
+
+    _panels = None
+
+    @classmethod
+    @property
+    def panels(cls):
+        """Getter for _panels
+        """
+        return cls._panels or {}
+
+    @classmethod
+    def add_panel(cls, panel) -> None:
+        """
+        Don't allow manual access to _panels; add values here
+
+        :param name: Label for the panel
+        :param panel: Panel object
+        """
+        if not cls._panels:
+            cls._panels = {}
+
+        cls._panels[panel.ident] = panel
+
+    @classmethod
+    def delete_panel(cls, name) -> None:
+        """
+        Delete a panel from _panels by name
+
+        :param name: Dict key in _panels
+        """
+        if not cls._panels:
+            raise RuntimeError(
+                "delete_panel when _panels hasn't been initialized")
+
+        del cls._panels[name]
 
     def __init__(self, sport) -> None:
-        self.sport = sport
-        self.ser = None
-        self.ts = time.time()
-        self.ident = None
+        """
+        Create a new Panel. Initialize with its port value.
 
-   
-    # An EVENT was detected, return the single line that constitutes the EVENT
-    def get_event(self) -> str:
-        if self.ser is None:
-            raise RuntimeError("Serial connection is not open")
+        :param sport: Port for this panel to open a connection on
+        """
+        self.port = sport
 
-        self.mark()
-        return self.ser.readline().decode().rstrip('\n\r')
-
-
-    # Send cmd and get single line response
-    def cmd(self, cmd) -> str:
-        if self.ser is None:
-            raise RuntimeError("Serial connection is not open")
-
-        self.ser.write(f"{cmd}\n".encode())
-        time.sleep(DEVICE_RESPONSE_DELAY)
-        self.mark()
-        return self.ser.readline().decode().rstrip('\n\r')
-
-
-    # Send cmd and get back list of lines as response
-    # Note: final ACK removed
-    def cmds(self, cmd) -> list[str]:
-        if self.ser is None:
-            raise RuntimeError("Serial connection is not open")
-
-        self.ser.write(f"{cmd}\n".encode())
-        time.sleep(DEVICE_RESPONSE_DELAY)
-        self.mark()
-
-        resp = self.ser.readlines()
-
-        # Validate we got ACK
-        if resp.pop().decode().rstrip('\n\r') != "ACK":
-            raise RuntimeError(f"{self.ident} failed to ACK for {cmd}")
-
-        # rval = []
-        # for line in resp:
-        #     rval.append( line.decode().rstrip('\n\r') )
-
-        return list(map(lambda line: line.decode().rstrip('\n\r'), resp))
-
-
-
-    # Update ts
     def mark(self) -> None:
-        self.ts = time.time()
+        """Update last-contact TS
+        """
+        self.last_contact_ts = time.time()
 
+    def get_event(self) -> str:
+        """
+        Process received event.
 
-    # Return true if healthy, false otherwise
+        :return: Single line constituting the event
+        """
+        if not self.connection:
+            raise RuntimeError(
+                f"Connection isn't established for {self.ident}")
+        self.mark()
+        return self.connection.readline().decode().strip()
+
+    def cmd(self, cmd) -> str:
+        """
+        Send a command and return its (single-line) result.
+
+        :param cmd: Command to execute
+        :return: Single-line response
+        """
+        if not self.connection:
+            raise RuntimeError(
+                f"Connection isn't established for {self.ident}")
+        self.connection.write(f"{cmd}\n".encode())
+        time.sleep(DEVICE_RESPONSE_DELAY_INIT)
+
+        resp = self.connection.readline().decode().strip()
+        if not resp:
+            time.sleep(DEVICE_RESPONSE_DELAY)
+            resp = self.connection.readline().decode().strip()
+
+        if not resp:
+            raise PanelTimeoutException(
+                f"TIMEOUT\twhen calling '{cmd}' for {self.ident}")
+
+        self.mark()
+        return resp
+
+    def cmds(self, cmd) -> list[str]:
+        """
+        Send a command and return its (multi-line) result.
+
+        :param cmd: Command to execute
+        :return: List of response lines
+        """
+        if not self.connection:
+            raise RuntimeError(
+                f"Connection isn't established for {self.ident}")
+        self.connection.write(f"{cmd}\n".encode())
+        time.sleep(DEVICE_RESPONSE_DELAY_INIT)
+
+        resp = self.connection.readlines()
+        if not resp:
+            time.sleep(DEVICE_RESPONSE_DELAY)
+            resp = self.connection.readlines()
+
+        if resp.pop().decode().strip() != "ACK":
+            raise PanelTimeoutException(
+                f"TIMEOUT\tmissing ACK when calling '{cmd}' for {self.ident}")
+
+        self.mark()
+        return list(map(lambda line: line.decode().strip(), resp))
+
     def is_healthcheck_needed(self) -> bool:
-        if time.time() - self.ts > HEALTHCHECK_TIME:
+        """
+        Check whether we've gone too long without a health check
+        :return: True if we need a new healthcheck, False if not
+        """
+        if not self.last_contact_ts:
+            raise RuntimeError(
+                f"last_contact_ts isn't established for {self.ident} yet")
+        if time.time() - self.last_contact_ts > HEALTHCHECK_TIME:
             return True
         return False
 
-
-    # Open serial port and get device IDENT
     def open(self) -> None:
+        """Open a connection on the defined port and set our device identity
+        """
+        self.connection = serial.Serial(self.port, 115200, timeout=0)
 
-        # Try and open the serial connection
-        self.ser = serial.Serial(self.sport, 115200, timeout=0)
-        
-        # Let's clear the serial buffer of any debug information
-        time.sleep(1) # Wait to fill buffer
-        self.ser.readlines() # Capture debug data and ignore
-        time.sleep(DEVICE_RESPONSE_DELAY) # Wait to fill buffer
+        # Clear the serial buffer of any debug information
+        time.sleep(2)  # Wait to fill buffer
+        _ = self.connection.readlines()  # Capture debug data and ignore
+        time.sleep(DEVICE_RESPONSE_DELAY)  # Wait to fill buffer
 
         # Grab IDENT
         self.ident = self.cmd("IDENT")
 
         if not re.search("PANEL$", self.ident):
-            self.ser.close()
-            raise ValueError(f"{self.sport} identifies as {self.ident} and not PANEL") 
+            self.connection.close()
+            raise ValueError(
+                f"{self.port} identifies as {self.ident} and not PANEL")
 
+        self.mark()
 
-    # Close the serial port
     def close(self) -> None:
-        if self.ser is None:
-            raise RuntimeError("Serial connection is not open")
+        """Close our connection
+        """
+        if not self.connection:
+            raise RuntimeError(
+                f"Connection isn't established for {self.ident}")
+        self.connection.close()
 
-        self.ser.close()
-
-
-    # Return fileno for select()
     def fileno(self):
-        if self.ser is None:
-            raise RuntimeError("Serial connection is not open")
+        """
+        Get our connection's fileno
+        :return: fileno for select()
+        """
+        if not self.connection:
+            raise RuntimeError(
+                f"Connection isn't established for {self.ident}")
+        return self.connection.fileno()
 
-        return self.ser.fileno()
-
-
-    # Do ping/pong with device
     def ping(self) -> None:
+        """Validate our device is responsive
+        """
         resp = self.cmd("PING")
 
         if resp != "PONG":
+            # TODO: Isn't this a failure state? Restart connection?
             print(f"DEBUG\t{time.ctime()}\tPing failed for {self.ident}")
 
-        
 
+def get_send_fn(conn) -> Callable[[str], None]:
+    """
+    Build a 'send' function using the provided connection
 
-# Return a closure over a connection which sends a line of text
-def get_send_fn(conn):
+    :param conn: An open serial connection
+    :return: A closure over a connection which sends a line of text
+    """
     return lambda line: conn.send(f"{line}\n".encode())
 
-# Handle a command for a specific panel
-def handle_panel_command(send, panel, command):
+
+def handle_panel_command(send, panel, command) -> None:
+    """
+    Handle a command for a specified panel
+
+    :param send: 'send' function with connection built in
+    :param panel: Panel object
+    :param command: Command to process
+    """
     resp = panel.cmds(command)
     for line in resp:
         send(line)
-    
-
-# Handle an EVENT incoming from a panel
-def handle_event(send,  panel):
-    send(panel.get_event())
+    send("ACK")
 
 
-# Handle a command from the network
+def handle_event(send,  panel) -> None:
+    """
+    Handle an EVENT incoming from a panel
+
+    :param send: 'send' function with connection built in
+    :param panel: Panel object
+    """
+    event_str = panel.get_event()
+    if event_str:
+        send(f"{panel.ident}\t{event_str}")
+    else:
+        raise RuntimeError("handle_event() trap state.")
+
+
+def pop_token(line: str):
+    """
+    Pull the first token off a string, and return the remainder
+    """
+    (x, *xs) = line.split(" ", 1)
+    if xs:
+        return [x, xs[0]]
+    else:
+        return [x, None]
+
+
 def handle_network_command(conn) -> bool:
-    global panels
-    
-    # receive data stream. it won't accept data packet greater than 1024 bytes
-    try:
-        data = conn.recv(1024)
-    except OSError as err:
-        print(f"DISCONNECT\tException on recv\t{type(err)=}\t{err=}")
-        return False
-    
-    if not data:
-        print(f"DISCONNECT\tNo data recv()")
-        return False
-    
-    # Figure out who this command is addressed to
-    try:
-        (addr, cline) = data.decode().rstrip('\r\n').split(" ", 1)
-    except Exception as err:
-        print(f"DISCONNECT\tException on input\t{type(err)=}\t{err=}")
-        return False;
+    """
+    Handle a command from the network
 
-    # Let's standardize on using this
+    :param panels: Dict of name: Panel pairs
+    :param conn: Some kind of connection/file descriptor
+    :return: True for success, False otherwise?
+    """
+    data = conn.recv(1024)
+
+    # The case the connection is closed
+    if not data:
+        return False
+
+    # Figure out who this command is addressed to
+    (addr, cline) = pop_token(data.decode().strip())
+
     send = get_send_fn(conn)
 
-    # Handle commands against serv.py
-    if addr == "SERV":
-        (cmd, params) = cline.split(" ", 1)
-    
-        # List all valid Serial devices
-        if cmd == "LIST":
-            for (device, desc, _) in serial.tools.list_ports.grep("^/dev/ttyUSB.*"):
-                send(f"{device}\t{desc}")
+    try:
+        if addr == "SERV":
+            (cmd, params) = pop_token(cline)
 
-        # Open a serial device for panel protocol
-        if cmd == "OPEN":
-            panel = Panel(params)
+            if cmd == "LIST":
+                for (device, desc, _) in list_ports.grep("^/dev/ttyUSB.*"):
+                    send(f"{device}\t{desc}")
 
-            try:
-                panel.open()
+            if cmd == "OPEN":
+                panel = Panel(params)
 
-            except Exception as err:
-                print(f"ERROR\twhile doing\t'{data}'")
-                print(f"EXCEPTION\t{err=}\t{type(err)=}")
-                print(traceback.format_exc())
-                send(f"ERR\t{err=}")
-            
-            send(panel.ident)
+                try:
+                    panel.open()
 
-        if cmd == "CLOSE":
-            panel = panels.get(params)
-            if panel is None:
-                conn.send(f"ERR\tPanel '{params}' is not found")
+                except Exception as err:
+                    print(f"ERROR\twhile doing\t'{data}'")
+                    print(f"EXCEPTION\t{err=}\t{type(err)}")
+                    print(traceback.format_exc())
+                    send(f"ERR\t{err=}")
 
-            else:
-                panel.close()
-                panels.pop(params)
+                if not panel.ident:
+                    print(
+                        f"ERROR\tFailed to open {params}. No ident returned by open()")
+                else:
+                    Panel.add_panel(panel)
+                    send(panel.ident)
 
-        # List available devices by their IDENT
-        if cmd == "AVAIL":
-            for panel in panels.keys():
-                send(panel)
+            if cmd == "CLOSE":
+                panel = Panel.panels.get(params)
+                if panel is None:
+                    send(f"ERR\tPanel '{params}' is not found")
 
-        if cmd == "PING":
-            send("PONG")
-    
-        # ACK response
-        send("ACK")
+                else:
+                    panel.close()
+                    Panel.delete_panel(params)
 
+            if cmd == "AVAIL":
+                for panel in Panel.panels.keys():
+                    send(panel)
 
-    # Handle commands against a panel
-    else:
-        panel = panels.get(addr)
-        if panel is None:
-            conn.send(f"ERR\tPanel '{addr}' is not found")
+            if cmd == "DEBUG":
+                (panel_name, op) = pop_token(params)
 
+                panel = Panel.panels.get(panel_name)
+                if panel is None:
+                    send(f"ERR\tPanel '{panel_name}' is not found")
+                else:
+                    send(panel.cmd(op))
+
+            if cmd == "PING":
+                send("PONG")
+
+            send("ACK")
         else:
-            handle_panel_command(send, panel, cline)
+            panel = Panel.panels.get(addr)
+
+            if panel is None:
+                send(f"ERR\tPanel '{addr}' is not found\n")
+            else:
+                handle_panel_command(send, panel, cline)
+
+    except PanelTimeoutException as err:
+        send(f"ERR\tTIMEOUT\t{err=}")
 
     return True
 
 
-def server_program():
-    global panels
-
-    # get the hostname
-    # host = socket.gethostname()
+def server_program() -> None:
+    """Start, run, and attempt to gracefully shut down our server
+    """
     port = 5000  # initiate port no above 1024
 
-    server_socket = socket.socket()  # get instance
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    # look closely. The bind() function takes tuple as argument
-    server_socket.bind(('', port))  # bind host address and port together
+    # socket.socket can work as a context manager, which will automatically
+    # close itself when it goes out of scope.
+    with socket.socket() as server_socket:
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # look closely. The bind() function takes tuple as argument
+        server_socket.bind(('', port))  # bind host address and port together
 
-    # configure how many client the server can listen simultaneously
-    server_socket.listen(3)
+        # configure how many client the server can listen simultaneously
+        server_socket.listen(3)
 
-    rlist = [ server_socket ]
+        rlist = [server_socket]
 
-    # Loop over connections
-    while True:
-        try: 
-            rl, _, xl = select.select( rlist + list(panels.values()), [], rlist + list(panels.values()), HEALTHCHECK_TIME)
+        # Loop over connections
+        while True:
+            try:
 
-            # Iterate over readable events
-            for fd in rl:
+                rl, _, xl = select.select(
+                    rlist + list(Panel.panels.values()),
+                    [],
+                    rlist + list(Panel.panels.values()),
+                    HEALTHCHECK_TIME,
+                )
 
-                # Case we have a new network connection
-                if fd is server_socket:
-                    client_socket, address = server_socket.accept()
-                    rlist.append(client_socket)
-                    print("CONN\t" + str(address[0]))
+                # Iterate over readable events
+                for fd in rl:
+                    # Case we have a new network connection
+                    if fd is server_socket:
+                        client_socket, address = server_socket.accept()
+                        rlist.append(client_socket)
+                        print("CONN\t" + str(address[0]))
 
-                # Case we have an EVENT from a panel
-                elif fd in list(panels.values()):
-                    # Gotta send event to each network connection
-                    for conn in list(filter(lambda fd: fd is not server_socket, rlist)):
-                        handle_event(get_send_fn(conn), fd)
+                    # Case we have an EVENT from a panel
+                    elif fd in list(Panel.panels.values()):
+                        # Gotta send event to each network connection
+                        for conn in filter(
+                            lambda fd: fd is not server_socket,
+                            rlist,
+                        ):
+                            handle_event(get_send_fn(conn), fd)
 
-                # Case we have a network command
-                else:
-                    if not handle_network_command(fd):
-                        # Handle the case connection is closed
-                        rlist.remove(fd)
+                    # Case we have a network command
+                    else:
+                        try:
+                            if not handle_network_command(fd):
+                                # Handle the case connection is closed
+                                rlist.remove(fd)
 
-            # Manage health checks
-            for panel in panels:
-                if panel.is_healthcheck_needed():
-                    panel.ping()
+                        # Just disconnect if user does ^C or something similar
+                        except UnicodeDecodeError:
+                            fd.close()
+                            rlist.remove(fd)
 
-            # Report on any exceptions
-            for x in xl:
-                print(f"DEBUG\tselect().xl is {x}")
+                for panel in Panel.panels.values():
+                    if panel.is_healthcheck_needed():
+                        try:
+                            panel.ping()
 
+                        # Report failed healthchecks to any client connected
+                        except PanelTimeoutException:
+                            for conn in filter(
+                                lambda fd: fd is not server_socket,
+                                rlist,
+                            ):
+                                conn.send(
+                                    f"NOPONG\tEVENT\t{panel.ident}\n".encode())
 
-        # Let's at least try and shutdown cleanly...
-        except Exception as err:
-            # conn.close()  # close the connection
-            # print(exc_type, fname, exc_tb.tb_lineno)
-            print(f"TOPEXCEPT\t{err=}\t{type(err)=}")
-            print(traceback.format_exc())
-            # server_socket.shutdown(socket.SHUT_RDWR)
-            # server_socket.close()
-            # raise
+                for x in xl:
+                    print(f"DEBUG\tselect().xl is {x}")
+
+            except Exception as err:
+                # Log exception
+                print(f"TOPEXCEPT\t{err=}\t{type(err)=}")
+                print(traceback.format_exc())
+
+                # Send info to clients
+                for conn in filter(
+                    lambda fd: fd is not server_socket,
+                    rlist,
+                ):
+                    conn.send(f"ERR\tTOPEX\t{type(err)=}\t{err=}".encode())
+
+                if SHUTDOWN_ON_EXCEPTION:
+                    panels = list(Panel.panels.values())
+                    for panel in panels:
+                        print(f"Closing panel {panel.ident}")
+                        Panel.delete_panel(panel.ident)
+                        panel.close()
 
 
 if __name__ == '__main__':

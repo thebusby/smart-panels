@@ -1,6 +1,9 @@
 (ns smart-desk.core
-
+  (:require [clojure.java.io       :as io]
+            )
   (:import [java.net Socket])
+  
+  (:use bagotricks)
   (:gen-class))
 
 (defn -main
@@ -22,8 +25,34 @@
 
   ;; Need command system to do things like DESC and SERV AVAIL
 
-  (-main)
 
+  (def socket (new Socket "192.168.1.3" 5000))
+
+  (def line-q (java.util.concurrent.LinkedBlockingQueue.))
+
+  (def rdr (io/reader socket))
+  (def wtr (io/writer socket))
+
+  (.write wtr "PING\n")
+
+  (def bg-reader-thread
+    (thread (let [;; rdr (io/reader socket)
+                  rdr rdr
+                  ]
+              (doseq [line (line-seq rdr)]
+                (.put line-q line)))))
+
+  
+  (.peek line-q)
+
+
+  (defn cmd
+    "Writes a commmand (appends \n to msg) to provided writer"
+    [wtr msg]
+    (do (.write wtr (str msg "\n"))
+        (.flush wtr)))
+  
+  
   (def test-event "BUTTON_PANEL\tEVENT\tBUTTON\tONN")
 
   
