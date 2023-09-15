@@ -25,24 +25,20 @@
 
   ;; Need command system to do things like DESC and SERV AVAIL
 
+  (do
+    (def socket (new Socket "192.168.1.3" 5000))
 
-  (def socket (new Socket "192.168.1.3" 5000))
+    (def line-q (java.util.concurrent.LinkedBlockingQueue.))
 
-  (def line-q (java.util.concurrent.LinkedBlockingQueue.))
+    (def rdr (io/reader socket))
+    (def wtr (io/writer socket))
 
-  (def rdr (io/reader socket))
-  (def wtr (io/writer socket))
+    (def bg-reader-thread
+      (thread (doseq [line (line-seq rdr)]
+                (.put line-q line))))
+    )
 
   (.write wtr "PING\n")
-
-  (def bg-reader-thread
-    (thread (let [;; rdr (io/reader socket)
-                  rdr rdr
-                  ]
-              (doseq [line (line-seq rdr)]
-                (.put line-q line)))))
-
-  
   (.peek line-q)
 
 
@@ -51,6 +47,16 @@
     [wtr msg]
     (do (.write wtr (str msg "\n"))
         (.flush wtr)))
+
+  (cmd wtr "SERV PING")
+  (cmd wtr "SERV OPENALL")
+
+  (defn dump-q
+    ""
+    [q]
+    (take (.size q) (repeatedly #(.take q))))
+  
+  (take 2 (line-seq rdr))
   
   
   (def test-event "BUTTON_PANEL\tEVENT\tBUTTON\tONN")
