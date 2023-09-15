@@ -336,6 +336,7 @@ def handle_network_command(conn) -> bool:
                         panel.open()
                         
                         if panel.ident is not None:
+                            Panel.add_panel(panel)
                             send(f"{panel.ident}\t{device}")
                     except Exception as err:
                         print(f"OPENALL\tERR\t{device}\t{type(err)=}\t{err=}")
