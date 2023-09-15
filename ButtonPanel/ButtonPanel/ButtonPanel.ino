@@ -62,23 +62,23 @@ Panel *panel = new Panel("BUTTON_PANEL", inputs, outputs);
 void setup() {
     Serial.begin(115200);
 
-    Serial.println("DEBUG Setup() started");
-    Serial.flush();
+    // Serial.println("DEBUG Setup() started");
+    // Serial.flush();
 
     // Initialize panel
     if(!panel->setup()) {
-      Serial.println("Panel init failed, do something!");
+      Serial.println("ERR\tPanel init failed, do something!");
       Serial.flush();
     }
 
     // Initialize IO expander
     if(!PCF->setup()) {
-      Serial.println("IO Expander init failed, do something!");
+      Serial.println("ERR\tIO Expander init failed, do something!");
       Serial.flush();
     }
 
-    Serial.println("INIT");
-    Serial.flush();
+    // Serial.println("INIT");
+    // Serial.flush();
 }
 
 void loop() {

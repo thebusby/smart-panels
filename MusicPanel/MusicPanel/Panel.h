@@ -526,7 +526,7 @@ public:
 
   bool setup() {
     _lcd->init();
-    _lcd->backlight(); // Enable backlight by default?
+    // _lcd->backlight(); // Enable backlight by default?
     _backlight = true;  
 
     return true;
