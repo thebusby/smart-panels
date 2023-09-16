@@ -27,6 +27,10 @@
 (defonce comp-state
   (atom {}))
 
+;; Stores writer for current socket
+(defonce global-writer
+  (atom nil))
+
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; Misc. Utilities
@@ -49,7 +53,7 @@
    Beware: nil -> nil, \"ONN\" -> :onn, \"-5\" -> -5"
   [^String token]
   (if (not (nil? token))
-    (if-let [num (re-get #"(\-?\d+)" token)]
+    (if-let [num (re-get #"(^\-?\d+$)" token)]
       (to-long token)
       (std-keyword token))))
 
@@ -114,13 +118,22 @@
 ;; APP SPECIFIC FN'S
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 
+(defn get-panel-prot-name
+  ":bottom-panel -> \"BOTTOM_PANEL\" "
+  [panel-keyword]
+  (some-> panel-keyword
+          name
+          .toUpperCase
+          (.replace \- \_)))
+
 (defn parse-event
   "Returns a parsed event, from a (split-tsv line); returns nil if line isn't an event"
   [msg]
-  (let [[_ msg-type] msg]
+  (let [[_ msg-type] msg
+        msg (zipmap [:source :msg-type :comp-name :comp-type :status]
+                    msg)]
     (if (= msg-type :event)
-      (assoc (zipmap [:source :msg-type :comp-name :comp-type :status]
-                     msg)
+      (assoc msg
 
              ;; Add a unique identifier
              :id (keyword (str (name (:source msg)) "|" (name (:comp-name msg)) ))
@@ -128,6 +141,21 @@
              ;; Add a timestamp for when it was received
              :ts (current-ts)
              ))))
+
+(defn cmd
+  "Takes a Panel command, and returns the response"
+  [panel-keyword ^String msg]
+
+  ;; Abort, and return nil, if the writer isn't available
+  (if-let [wtr @global-writer]
+    (do
+
+      ;; Send the message
+      (.write wtr (str (get-panel-prot-name panel-keyword) " " msg "\n"))
+      (.flush wtr)
+
+      ;; Return the response, should block
+      (.take cmd-rx-q))))
 
 (defn spawn-socket-thread
   "Spawn thread to handle socket and queues"
@@ -147,6 +175,10 @@
               (let [socket (new Socket address port)
                     agg (atom []) ;; Maintain state to aggregate command responses
                     wtr (io/writer socket)]
+
+                ;; Register the new writer for the current socket
+                (reset! global-writer wtr)
+
                 (doseq [line (line-seq (io/reader socket))]
 
                   ;; Let's record some logs
@@ -174,11 +206,15 @@
                         ;; Just aggregate message waiting for ACK
                         (swap! agg conj msg))))))
 
-              ;; Catch any exceptions, and restart connectios
+              ;; Catch any exceptions, and restart connections
+              (catch InterruptedException e
+                (log "INTERUPT")
+                (throw (Exception. "Interrupt execution")))
               (catch Exception e
                 (log (str "EXCEPTION\t" (.getMessage e)))))
 
             ;; Wait N seconds if we get disconnected before trying again
+            (reset! global-writer nil)
             (log (str "DISC\t" socket-count "\t" address "\t" port))
             (Thread/sleep (* 8 1000))
             ))))))
@@ -206,6 +242,10 @@
   (def bg-thread (spawn-socket-thread "/tmp/smart_desk.log"
                                       "192.168.1.3"
                                       5000))
+
+  (.interrupt bg-thread)
+  (.isAlive bg-thread)
+
 
 
 
@@ -259,7 +299,7 @@
   (defn dump-q
     "Dump all of the queue"
     [q]
-~    (take (.size q) (repeatedly #(.take q))))
+    (take (.size q) (repeatedly #(.take q))))
 
   (rawcmd "SERV PING")
   (raw cmd "SERV OPENALL")
@@ -309,5 +349,17 @@
   (exec "/usr/bin/xeyes")
 
 
+
+
+  (some->> line
+           split-tsv
+           (mapv keyword-msg)
+           ;; parse-event
+           (zipmap [:source :msg-type :comp-name :comp-type :status]
+                    )
+           )
+
+
+  
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
   )
