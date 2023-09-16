@@ -31,15 +31,9 @@
 (defonce global-writer
   (atom nil))
 
-(def registered-events
-  "Registered handlers for events"
-  {:button-panel|key-l1 (fn [status]
-                          (if (= status :onn)
-                            (do
-                              (println "L1 pressed!")
-                              (exec "/usr/bin/xeyes"))
-                            ))
-   })
+;; Registered handlers for events
+(defonce registered-events
+  (atom {}))
 
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
@@ -57,6 +51,15 @@
   [^String s]
   (if (good-string? s)
     s))
+
+(defn run
+  "Execute on the command line and return the response"
+  [& fields]
+  (-> (Runtime/getRuntime)
+      (.exec (into-array String fields))
+      (.getInputStream)
+      slurp))
+
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; TIMESTAMP
@@ -116,16 +119,45 @@
 
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
+;; MISC
+;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
+
+(def mocp-path
+  "PATH to mocp"
+  "/usr/bin/mocp")
+
+(defn get-mocp-state
+  ""
+  []
+  (some->> (run mocp-path "--format" "%state\t%title")
+           (clojure.string/trim-newline)
+           (split-tsv)
+           (zipmap [:mode :title])
+           ))
+
+;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; APP SPECIFIC FN'S
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 
-(defn kw-to-caps
-  ":bottom-panel -> \"BOTTOM_PANEL\" "
-  [panel-keyword]
-  (some-> panel-keyword
-          name
-          .toUpperCase
-          (.replace \- \_)))
+(defprotocol CljToProto
+  (to-proto [t] "Convert EDN types into proper format for Panel protocol"))
+
+(extend-protocol CljToProto
+  java.lang.String
+  (to-proto [t] t)
+
+  java.lang.Long
+  (to-proto [t] (str t))
+
+  clojure.lang.Keyword
+  (to-proto [t] (some-> t
+                        name
+                        .toUpperCase
+                        (.replace \- \_)))
+
+  nil
+  (to-proto [_] nil)
+  )
 
 (defn caps-to-kw
   "Convert SERIAL text format into Clojure keywords.
@@ -136,11 +168,16 @@
       (to-long token)
       (std-keyword token))))
 
+(defn register-event
+  "Register a handler (fn [status]) for a particular event id"
+  [id handler-fn]
+  (swap! registered-events assoc id handler-fn))
+
 (defn parse-event
   "Returns a parsed event, from a (split-tsv line); returns nil if line isn't an event"
   [msg]
   (let [[_ msg-type] msg
-        msg (zipmap [:source :msg-type :comp-name :comp-type :status]
+        msg (zipmap [:source :msg-type :comp-name :comp-type :status :extra]
                     msg)]
     (if (= msg-type :event)
       (assoc msg
@@ -171,7 +208,7 @@
   "Accept a command"
   [& fields]
   (let [resp (some->> fields
-                      (map kw-to-caps)
+                      (map to-proto)
                       (interpose " ")
                       (apply str)
                       cmd-string)]
@@ -295,11 +332,18 @@
   ;; Need command system to do things like DESC and SERV AVAIL
 
 
-  (def bg-thread (spawn-socket-thread "/tmp/smart_desk.log"
-                                      "192.168.1.3"
-                                      5000))
+  (def serial-thread (spawn-socket-thread "/tmp/smart_desk.log"
+                                    "192.168.1.3"
+                                    5000))
 
-  (.interrupt bg-thread)
+  (def event-thread (thread
+                      (doseq [{:keys [id status] :as event} (repeatedly #(.take event-q))]
+                        (swap! comp-state assoc id status)
+                        (if-let [event-handler (get @registered-events id)]
+                          (event-handler event)))))
+
+  (.interrupt serial-thread)
+  (.interrupt event-thread)
   (.isAlive bg-thread)
   (cmd :serv :close :status-panel)
 
@@ -312,23 +356,87 @@
 
 
   ;; spawn-socket-thread
+  (spawn-socket-thread "/tmp/smart_desk.log"
+                       "192.168.1.3"
+                       5000)
   ;; init state
   (some->> (get-available-panels)
            (map get-panel-state)
            (reduce merge)
            (reset! comp-state))
+
   ;; Start processing events
+  (thread
+    (doseq [{:keys [id status] :as event} (repeatedly #(.take event-q))]
+      (swap! comp-state assoc id status)
+      (if-let [event-handler (get @registered-events id)]
+        (event-handler event))))
 
 
-  (defn process-events []
-    )
+  (register-event :button-panel|key-l1
+                  (fn [{:keys [status]}]
+                    (if (= status :onn)
+                      (exec "/usr/bin/xeyes"))))
 
-  (doseq [{:keys [id status]} (take 2 (repeatedly #(.take event-q)))]
-    (if-let [event-handler (get registered-events id)]
-      (event-handler status)
-      )
-    )
+  ;; Forward/Back in Playlist
+  (register-event :music-panel|re2
+                  (fn [{:keys [status]}]
+                    (if (= status :right)
+                      (do (run mocp-path "--next")
+                          (Thread/sleep 3000)
+                          (display-mocp))
+                      (do (run mocp-path "--previous")
+                          (Thread/sleep 3000)
+                          (display-mocp))
+                      )))
 
+  ;; Volume Up/Down
+  (register-event :music-panel|re1
+                  (fn [{:keys [status]}]
+                    (if (= status :right)
+                      (run mocp-path "-v" "+1")
+                      (run mocp-path "-v" "-1")
+                      )))
+
+  ;; Register Play/Stop
+  (register-event :button-panel|toggle,
+                  (fn [{:keys [status]}]
+                    (if (= status :onn)
+                      (do
+                        (cmd :music-panel :set :lcd :light :onn)
+                        (run mocp-path "--play")
+                        (Thread/sleep 3000)
+                        (display-mocp)
+                        )
+                      (do
+                        (cmd :music-panel :set :lcd :light :off)
+                        (run mocp-path "--stop")))))
+
+  (defn display-mocp
+    ""
+    []
+    (let [{:keys [mode title]} (get-mocp-state)]
+      (cmd :music-panel :set :lcd :clr)
+      (cmd :music-panel :set :lcd 1 0 mode)
+      (cmd :music-panel :set :lcd 2 0 (apply str (take 20 title)))))
+
+  
+  (cmd :music-panel :set :lcd :light :off)
+
+
+  (exec "/usr/bin/mocp --toggle-pause")
+
+  (let [p (exec "/usr/bin/mocp --format %state%title")]
+    (slurp (.getInputStream p)))
+
+
+
+
+
+  (-> (Runtime/getRuntime)
+      (.exec (into-array String ["/usr/bin/mocp" "--format" "%state\t%title"]))
+      (.getInputStream)
+      slurp)
 
 
   (.interrupt bg-reader-thread)
