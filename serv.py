@@ -257,7 +257,8 @@ def handle_event(send,  panel) -> None:
     if event_str:
         send(f"{panel.ident}\t{event_str}")
     else:
-        raise RuntimeError(f"{panel.ident}.get_event() returned None\n")
+        print(f"NOTE\t{panel.ident}.get_event() returned None\n")
+        # raise RuntimeError(f"{panel.ident}.get_event() returned None\n")
 
 
 def pop_token(line: str):
@@ -431,11 +432,17 @@ def server_program() -> None:
                     # Case we have an EVENT from a panel
                     elif fd in list(Panel.panels.values()):
                         # Gotta send event to each network connection
-                        for conn in filter(
-                            lambda fd: fd is not server_socket,
-                            rlist,
-                        ):
-                            handle_event(get_send_fn(conn), fd)
+                        event_str = fd.get_event()
+                        if event_str:
+                            for conn in filter(
+                                lambda fd: fd is not server_socket,
+                                rlist,
+                            ):
+                                send = get_send_fn(conn)
+                                send(f"{fd.ident}\t{event_str}")
+                        else:
+                            raise RuntimeError(
+                                f"{fd.ident}.get_event() returned None\n")
 
                     # Case we have a network command
                     else:
@@ -478,7 +485,7 @@ def server_program() -> None:
                     lambda fd: fd is not server_socket,
                     rlist,
                 ):
-                    conn.send(f"ERR\tTOPEX\t{type(err)=}\t{err=}".encode())
+                    conn.send(f"ERR\tTOPEX\t{type(err)=}\t{err=}\n".encode())
 
                 if SHUTDOWN_ON_EXCEPTION:
                     panels = list(Panel.panels.values())
