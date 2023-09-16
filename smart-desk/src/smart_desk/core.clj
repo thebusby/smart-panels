@@ -122,9 +122,8 @@
 ;; MISC
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 
-(def mocp-path
-  "PATH to mocp"
-  "/usr/bin/mocp")
+(def mocp-path "/usr/bin/mocp")
+(def swaymsg-path "/usr/bin/swaymsg")
 
 (defn get-mocp-state
   ""
@@ -376,7 +375,12 @@
   (register-event :button-panel|key-l1
                   (fn [{:keys [status]}]
                     (if (= status :onn)
-                      (exec "/usr/bin/xeyes"))))
+                      (run swaymsg-path "fullscreen"))))
+
+  (register-event :button-panel|key-l5
+                  (fn [{:keys [status]}]
+                    (if (= status :onn)
+                      (run swaymsg-path "kill"))))
 
   ;; Forward/Back in Playlist
   (register-event :music-panel|re2
@@ -420,8 +424,13 @@
       (cmd :music-panel :set :lcd 1 0 mode)
       (cmd :music-panel :set :lcd 2 0 (apply str (take 20 title)))))
 
-  
+  ;; Turn off LCD backlight
   (cmd :music-panel :set :lcd :light :off)
+  (cmd :music-panel :set :rgbled :red :onn)
+
+  ;; swaymsg
+  ;; "kill" to close window
+  ;; "fullscreen"
 
 
   (exec "/usr/bin/mocp --toggle-pause")
