@@ -60,6 +60,18 @@
       (.getInputStream)
       slurp))
 
+(defn run-trailing-q-pusher
+  "Execute on the command line and return the response"
+  [cmd-array q parse-fn]
+  (thread
+    (let [rdr (-> (Runtime/getRuntime)
+                  (.exec (into-array String cmd-array))
+                  (.getInputStream)
+                  io/reader)]
+      (doseq [line (line-seq rdr)]
+        (if-let [event-msg (parse-fn line)]
+          (.put q event-msg))))))
+
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; TIMESTAMP
@@ -134,6 +146,15 @@
            (zipmap [:mode :title])
            ))
 
+(defn display-mocp
+  ""
+  []
+  (let [{:keys [mode title]} (get-mocp-state)]
+    (cmd :music-panel :set :lcd :clr)
+    (cmd :music-panel :set :lcd 1 0 mode)
+    (cmd :music-panel :set :lcd 2 0 (apply str (take 20 title)))))
+
+
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; APP SPECIFIC FN'S
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
@@ -189,19 +210,13 @@
              ))))
 
 (defn cmd-string
-  "Takes a Panel command, and returns the response"
+  "Takes a Panel command, and returns the response.
+   Does this via the cmd-tx-q so that only a single
+   command is run at a time."
   [^String msg]
-
-  ;; Abort, and return nil, if the writer isn't available
-  (if-let [wtr @global-writer]
-    (do
-
-      ;; Send the message
-      (.write wtr (str msg "\n"))
-      (.flush wtr)
-
-      ;; Return the response, should block
-      (.take cmd-rx-q))))
+  (let [resp (promise)]
+    (.put cmd-tx-q [msg resp])
+    @resp))
 
 (defn cmd
   "Accept a command"
@@ -311,10 +326,127 @@
             (Thread/sleep (* 8 1000))
             ))))))
 
+(defn spawn-event-thread
+  "Return thread that handles processing events."
+  []
+  (thread
+    (doseq [{:keys [id status] :as event} (repeatedly #(.take event-q))]
+      (swap! comp-state assoc id status)
+      (if-let [event-handler (get @registered-events id)]
+        (event-handler event)))))
+
+(defn spawn-cmd-thread
+  "Return thread that handles executing commands"
+  []
+  (thread
+    (doseq [[^String msg prom] (repeatedly #(.take cmd-tx-q))]
+      (if-let [wtr @global-writer]
+        (do
+
+          ;; Send the message to the server
+          (.write wtr (str msg "\n"))
+          (.flush wtr)
+
+          ;; Deliver the passed promise, block no cmd-rx-q
+          (deliver prom (.take cmd-rx-q)))
+        (deliver prom nil)))))
+
+(defn register-default-events
+  "Register default events"
+  []
+  (do
+    ;;
+    ;; Register default behaviour here
+    ;;
+
+    ;; Sway - Fullscreen shortcut
+    (register-event :button-panel|key-l1
+                    (fn [{:keys [status]}]
+                      (if (= status :onn)
+                        (run swaymsg-path "fullscreen"))))
+
+    ;; Sway - Close window shortcut
+    (register-event :button-panel|key-l5
+                    (fn [{:keys [status]}]
+                      (if (= status :onn)
+                        (run swaymsg-path "kill"))))
+
+    ;; Forward/Back in Playlist
+    (register-event :music-panel|re2
+                    (fn [{:keys [status]}]
+                      (if (= status :right)
+                        (do (run mocp-path "--next")
+                            (Thread/sleep 3000)
+                            (display-mocp))
+                        (do (run mocp-path "--previous")
+                            (Thread/sleep 3000)
+                            (display-mocp)))))
+
+    ;; Volume Up/Down
+    (register-event :music-panel|re1
+                    (fn [{:keys [status]}]
+                      (if (= status :right)
+                        (run mocp-path "-v" "+1")
+                        (run mocp-path "-v" "-1"))))
+
+    ;; Register Play/Stop
+    (register-event :button-panel|toggle,
+                    (fn [{:keys [status]}]
+                      (if (= status :onn)
+                        (do
+                          (cmd :music-panel :set :lcd :light :onn)
+                          (run mocp-path "--play")
+                          (Thread/sleep 3000)
+                          (display-mocp))
+                        (do
+                          (cmd :music-panel :set :lcd :light :off)
+                          (run mocp-path "--stop")))))
+
+    ))
+
+(defn init-comp-state
+  ""
+  []
+  (some->> (get-available-panels)
+           (map get-panel-state)
+           (reduce merge)
+           (reset! comp-state)))
+
 (defn -main
-  "I don't do a whole lot ... yet."
+  "Spawn threads, sit back, and wait"
   [& args]
-  (println "Hello, World!"))
+  (let [socket-thread (spawn-socket-thread "/tmp/smart_desk.log"
+                                           "192.168.1.3"
+                                           5000)
+        event-thread (spawn-event-thread)
+        cmd-thread (spawn-cmd-thread)]
+
+    ;; Initialize component state
+    (init-comp-state)
+
+    ;; Register events before we sleep
+    (register-default-events)
+
+    ;; Kickoff PINGER
+    ;; For tracking network latency and packet loss
+    (run-trailing-q-pusher ["/home/busby/env/bin/pinger"]
+                           event-q
+                           (fn [line]
+                             ;; Do something here!
+                             nil
+                             ))
+
+    ;; Kickoff MyEvTest
+    (run-trailing-q-pusher ["/home/busby/env/bin/evtest /dev/hotas"]
+                           event-q
+                           (fn [line]
+                             ;; Do something here!
+                             nil
+                             ))
+
+
+    ;; When socket-thread ends, we can shutdown
+    (.join socket-thread)))
 
 
 
@@ -322,32 +454,40 @@
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 
 
-  ;; TODO:
-  ;; Get all socket reads, divide into cmd-rx and event queue
-  ;; event queue should modify global state
-  ;;       retrieve global state easily
-  ;; event queue should check for a handler subscribed to that component
 
-  ;; Need command system to do things like DESC and SERV AVAIL
-
-
+  ;; Handles incoming data from network socket, and divides
+  ;; the output to event-q and cmd-rx-q based on type
   (def serial-thread (spawn-socket-thread "/tmp/smart_desk.log"
                                     "192.168.1.3"
                                     5000))
 
-  (def event-thread (thread
-                      (doseq [{:keys [id status] :as event} (repeatedly #(.take event-q))]
-                        (swap! comp-state assoc id status)
-                        (if-let [event-handler (get @registered-events id)]
-                          (event-handler event)))))
+  ;; Handles incoming data from event-q, updates global state,
+  ;; and executes any registered even handlers for a given id (source+component)
+  (def event-thread (spawn-event-thread))
 
+  ;; Ensures that any commands to the device across the code base are
+  ;; queued and run one at a time.
+  (def cmd-thread (spawn-cmd-thread))
+
+  ;; Initialize component state
+  (init-comp-states)
+
+  ;; Register all the default behavior
+  (register-default-events)
+
+
+
+  ;; Debug commands
   (.interrupt serial-thread)
   (.interrupt event-thread)
-  (.isAlive bg-thread)
+  (.interrupt cmd-thread)
+
+  (some->> [serial-thread event-thread cmd-thread]
+           (mapv #(.isAlive %)))
+
   (cmd :serv :close :status-panel)
 
 
-  (dump-q )
 
 
   (get-panel-state :music-panel)
@@ -358,11 +498,6 @@
   (spawn-socket-thread "/tmp/smart_desk.log"
                        "192.168.1.3"
                        5000)
-  ;; init state
-  (some->> (get-available-panels)
-           (map get-panel-state)
-           (reduce merge)
-           (reset! comp-state))
 
   ;; Start processing events
   (thread
@@ -372,122 +507,40 @@
         (event-handler event))))
 
 
-  (register-event :button-panel|key-l1
-                  (fn [{:keys [status]}]
-                    (if (= status :onn)
-                      (run swaymsg-path "fullscreen"))))
 
-  (register-event :button-panel|key-l5
-                  (fn [{:keys [status]}]
-                    (if (= status :onn)
-                      (run swaymsg-path "kill"))))
 
-  ;; Forward/Back in Playlist
-  (register-event :music-panel|re2
-                  (fn [{:keys [status]}]
-                    (if (= status :right)
-                      (do (run mocp-path "--next")
-                          (Thread/sleep 3000)
-                          (display-mocp))
-                      (do (run mocp-path "--previous")
-                          (Thread/sleep 3000)
-                          (display-mocp))
-                      )))
-
-  ;; Volume Up/Down
-  (register-event :music-panel|re1
-                  (fn [{:keys [status]}]
-                    (if (= status :right)
-                      (run mocp-path "-v" "+1")
-                      (run mocp-path "-v" "-1")
-                      )))
-
-  ;; Register Play/Stop
-  (register-event :button-panel|toggle,
-                  (fn [{:keys [status]}]
-                    (if (= status :onn)
-                      (do
-                        (cmd :music-panel :set :lcd :light :onn)
-                        (run mocp-path "--play")
-                        (Thread/sleep 3000)
-                        (display-mocp)
-                        )
-                      (do
-                        (cmd :music-panel :set :lcd :light :off)
-                        (run mocp-path "--stop")))))
-
-  (defn display-mocp
-    ""
-    []
-    (let [{:keys [mode title]} (get-mocp-state)]
-      (cmd :music-panel :set :lcd :clr)
-      (cmd :music-panel :set :lcd 1 0 mode)
-      (cmd :music-panel :set :lcd 2 0 (apply str (take 20 title)))))
 
   ;; Turn off LCD backlight
   (cmd :music-panel :set :lcd :light :off)
   (cmd :music-panel :set :rgbled :red :onn)
 
-  ;; swaymsg
-  ;; "kill" to close window
-  ;; "fullscreen"
 
 
-  (exec "/usr/bin/mocp --toggle-pause")
-
-  (let [p (exec "/usr/bin/mocp --format %state%title")]
-    (slurp (.getInputStream p)))
+  ;;
+  ;; For trailing output of program,
+  ;; like pinger or evtest
+  ;;
 
 
 
-
-
+  
   (-> (Runtime/getRuntime)
       (.exec (into-array String ["/usr/bin/mocp" "--format" "%state\t%title"]))
       (.getInputStream)
-      slurp)
-
-
-  (.interrupt bg-reader-thread)
-
-
-  (do
-    (def socket (new Socket ))
-    (def wtr (io/writer socket))
-
-    (defonce line-q (java.util.concurrent.LinkedBlockingQueue.))
-
-    (def bg-reader-thread
-      (thread (let [rdr (io/reader socket)]
-                (doseq [line (line-seq rdr)]
-                  (.put line-q line)))))
-    )
-
-  (def bg-reader-thread
-    )
+      io/reader
+      (line-seq)
+      )
 
 
 
 
 
 
-
-
-
-
-
-  (.write wtr "PING\n")
   (.peek line-q)
-
-
-
-(some->> "ACK"
-         split-tsv
-         (mapv std-keyword))
 
   (defn rawcmd
     "Writes a commmand (appends \n to msg) to provided writer"
-    [msg]
+    [wtr msg]
     (do (.write wtr (str msg "\n"))
         (.flush wtr)))
 
@@ -497,72 +550,23 @@
     (take (.size q) (repeatedly #(.take q))))
 
   (rawcmd "SERV PING")
-  (raw cmd "SERV OPENALL")
-
-
-  ;; SOURCE
-  ;; MSG_TYPE
-  ;; COMPONENT_NAME
-  ;; COMPONENT_TYPE
-  ;; STATUS
+  (rawcmd "SERV OPENALL")
 
 
 
 
 
 
-  (let [line "BUTTON_PANEL\tEVENT\tKEY_L1\tBTN\tONN"
-        [x y ]]
-    (some->> line
-             split-tsv))
-
-  (take 2 (line-seq rdr))
-
-
-  (def test-event "BUTTON_PANEL\tEVENT\tBUTTON\tONN")
-
-
-  (defn get-queue-lbq
-    "Generates a java.util.concurrent.LinkedBlockingQueue
-  and returns two functions for 'put' and 'take'"
-    ([]
-     (let [bq   (java.util.concurrent.LinkedBlockingQueue.)
-           put  #(.put bq %)
-           take #(.take bq)]
-       [put take]))
-    ([col]
-     (let [bq   (java.util.concurrent.LinkedBlockingQueue. ^Integer (to-int col))
-           put  #(.put bq %)
-           take #(.take bq)]
-       [put take])))
 
   (defn read-lines [^String filename]
-  (with-open [x (io/reader filename)]
-    (vec (line-seq x))))
+    (with-open [x (io/reader filename)]
+      (vec (line-seq x))))
 
   ;; Try this!
   (exec "/usr/bin/xeyes")
 
 
 
-  (some->> (get-available-panels)
-           (map get-panel-state)
-           (reduce merge))
-
-
-  (some->> line
-           split-tsv
-           (mapv keyword-msg)
-           ;; parse-event
-           (zipmap [:source :msg-type :comp-name :comp-type :status]
-                    )
-           )
-
-
-
-
-  (let [panel :music-panel]
-)
 
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
