@@ -2,11 +2,11 @@
 #
 # serv.py
 # A simple script to act as a relay between smart-panels
-# connected via USB (usually to a RBPi zero) and a 
-# network client on a desktop computer. 
-# 
+# connected via USB (usually to a RBPi zero) and a
+# network client on a desktop computer.
+#
 # NOTE: Install PySerial via following command;
-#       python -m pip install pyserial 
+#       python -m pip install pyserial
 import re
 import time
 import socket
@@ -257,7 +257,7 @@ def handle_event(send,  panel) -> None:
     if event_str:
         send(f"{panel.ident}\t{event_str}")
     else:
-        raise RuntimeError("handle_event() trap state.")
+        raise RuntimeError(f"{panel.ident}.get_event() returned None\n")
 
 
 def pop_token(line: str):
@@ -334,7 +334,7 @@ def handle_network_command(conn) -> bool:
                     try:
                         panel = Panel(device)
                         panel.open()
-                        
+
                         if panel.ident is not None:
                             Panel.add_panel(panel)
                             send(f"{panel.ident}\t{device}")
@@ -460,8 +460,10 @@ def server_program() -> None:
                                 lambda fd: fd is not server_socket,
                                 rlist,
                             ):
+                                panel.mark()  # Don't complain about this again until the next scheduled healthcheck
                                 conn.send(
-                                    f"NOPONG\tEVENT\t{panel.ident}\n".encode())
+                                    f"{panel.ident}\tEVENT\tSERV_PING\tPING\tNOPONG\n"
+                                    .encode())
 
                 for x in xl:
                     print(f"DEBUG\tselect().xl is {x}")
