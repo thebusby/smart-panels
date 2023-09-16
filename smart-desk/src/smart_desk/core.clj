@@ -157,6 +157,27 @@
       ;; Return the response, should block
       (.take cmd-rx-q))))
 
+(defn get-panel-state
+  "Return all input component states for a specified panel"
+  [panel]
+  (if-let [resp (cmd panel "DESC")]
+    (some->> resp
+             (keep (fn [fields]
+                     (if (> (count fields) 2)
+                       (let [comp-name (first fields)
+                             value (last fields)]
+                         [(keyword (str (name panel) "|" (name comp-name))) value]
+                         ))
+                     ))
+             vec
+             (into {}))))
+
+(defn get-available-panels
+  "Return list of available panels"
+  []
+  (some->> (cmd :serv "AVAIL")
+           (mapv first)))
+
 (defn spawn-socket-thread
   "Spawn thread to handle socket and queues"
   [log-filename address port]
@@ -198,10 +219,9 @@
 
                         ;; Push aggregate command response
                         (let [resp @agg]
-                          (if-not (empty? resp)
-                            (do
-                              (.put cmd-rx-q resp)
-                              (reset! agg []))))
+                          (do
+                            (.put cmd-rx-q resp)
+                            (reset! agg [])))
 
                         ;; Just aggregate message waiting for ACK
                         (swap! agg conj msg))))))
@@ -247,6 +267,7 @@
   (.isAlive bg-thread)
 
 
+  (dump-q )
 
 
 
@@ -360,6 +381,11 @@
            )
 
 
+
+
+  (let [panel :music-panel]
+)
+  
   
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
   )
