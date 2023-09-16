@@ -31,6 +31,16 @@
 (defonce global-writer
   (atom nil))
 
+(def registered-events
+  "Registered handlers for events"
+  {:button-panel|key-l1 (fn [status]
+                          (if (= status :onn)
+                            (do
+                              (println "L1 pressed!")
+                              (exec "/usr/bin/xeyes"))
+                            ))
+   })
+
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; Misc. Utilities
@@ -47,15 +57,6 @@
   [^String s]
   (if (good-string? s)
     s))
-
-(defn keyword-msg
-  "Convert SERIAL text format into Clojure keywords.
-   Beware: nil -> nil, \"ONN\" -> :onn, \"-5\" -> -5"
-  [^String token]
-  (if (not (nil? token))
-    (if-let [num (re-get #"(^\-?\d+$)" token)]
-      (to-long token)
-      (std-keyword token))))
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; TIMESTAMP
@@ -126,6 +127,15 @@
           .toUpperCase
           (.replace \- \_)))
 
+(defn caps-to-kw
+  "Convert SERIAL text format into Clojure keywords.
+   Beware: nil -> nil, \"ONN\" -> :onn, \"-5\" -> -5"
+  [^String token]
+  (if (not (nil? token))
+    (if-let [num (re-get #"(^\-?\d+$)" token)]
+      (to-long token)
+      (std-keyword token))))
+
 (defn parse-event
   "Returns a parsed event, from a (split-tsv line); returns nil if line isn't an event"
   [msg]
@@ -167,7 +177,6 @@
                       cmd-string)]
 
     ;; If first field of first record is ERR, throw exception
-          resp
     (if (some->> resp
                  first
                  first
@@ -175,8 +184,8 @@
       (throw (Exception. (some->> resp
                                   first
                                   (interpose " ")
-                                  (apply str))))
-)))
+                                  (apply str)))))
+    resp))
 
 (defn get-panel-state
   "Return all input component states for a specified panel"
@@ -229,7 +238,7 @@
                   ;; Handle the messages
                   (if-let [msg (some->> line
                                         split-tsv
-                                        (mapv keyword-msg))]
+                                        (mapv caps-to-kw))]
                     (if-let [event-msg (parse-event msg)]
 
                       ;; If we get an event, push to event-q immediately
@@ -292,6 +301,7 @@
 
   (.interrupt bg-thread)
   (.isAlive bg-thread)
+  (cmd :serv :close :status-panel)
 
 
   (dump-q )
@@ -301,7 +311,23 @@
 
 
 
+  ;; spawn-socket-thread
+  ;; init state
+  (some->> (get-available-panels)
+           (map get-panel-state)
+           (reduce merge)
+           (reset! comp-state))
+  ;; Start processing events
 
+
+  (defn process-events []
+    )
+
+  (doseq [{:keys [id status]} (take 2 (repeatedly #(.take event-q)))]
+    (if-let [event-handler (get registered-events id)]
+      (event-handler status)
+      )
+    )
 
 
 
@@ -401,6 +427,10 @@
   (exec "/usr/bin/xeyes")
 
 
+
+  (some->> (get-available-panels)
+           (map get-panel-state)
+           (reduce merge))
 
 
   (some->> line
