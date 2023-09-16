@@ -118,7 +118,7 @@
 ;; APP SPECIFIC FN'S
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 
-(defn get-panel-prot-name
+(defn kw-to-caps
   ":bottom-panel -> \"BOTTOM_PANEL\" "
   [panel-keyword]
   (some-> panel-keyword
@@ -142,25 +142,46 @@
              :ts (current-ts)
              ))))
 
-(defn cmd
+(defn cmd-string
   "Takes a Panel command, and returns the response"
-  [panel-keyword ^String msg]
+  [^String msg]
 
   ;; Abort, and return nil, if the writer isn't available
   (if-let [wtr @global-writer]
     (do
 
       ;; Send the message
-      (.write wtr (str (get-panel-prot-name panel-keyword) " " msg "\n"))
+      (.write wtr (str msg "\n"))
       (.flush wtr)
 
       ;; Return the response, should block
       (.take cmd-rx-q))))
 
+(defn cmd
+  "Accept a command"
+  [& fields]
+  (let [resp (some->> fields
+                      (map kw-to-caps)
+                      (interpose " ")
+                      (apply str)
+                      cmd-string)]
+
+    ;; If first field of first record is ERR, throw exception
+          resp
+    (if (some->> resp
+                 first
+                 first
+                 (= :err))
+      (throw (Exception. (some->> resp
+                                  first
+                                  (interpose " ")
+                                  (apply str))))
+)))
+
 (defn get-panel-state
   "Return all input component states for a specified panel"
   [panel]
-  (if-let [resp (cmd panel "DESC")]
+  (if-let [resp (cmd panel :desc)]
     (some->> resp
              (keep (fn [fields]
                      (if (> (count fields) 2)
@@ -223,8 +244,14 @@
                             (.put cmd-rx-q resp)
                             (reset! agg [])))
 
-                        ;; Just aggregate message waiting for ACK
-                        (swap! agg conj msg))))))
+                        ;; If we see an error, abort everything and send it up
+                        (if (= :err (first msg))
+                          (do
+                            (.put cmd-rx-q [msg])
+                            (reset! agg []))
+
+                          ;; Otherwise, just aggregate the message waiting for ACK
+                          (swap! agg conj msg)))))))
 
               ;; Catch any exceptions, and restart connections
               (catch InterruptedException e
@@ -270,10 +297,14 @@
   (dump-q )
 
 
+  (get-panel-state :music-panel)
 
 
 
-  
+
+
+
+
   (.interrupt bg-reader-thread)
 
 
@@ -385,7 +416,7 @@
 
   (let [panel :music-panel]
 )
-  
-  
+
+
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
   )

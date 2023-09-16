@@ -155,7 +155,7 @@ class Panel:
             time.sleep(DEVICE_RESPONSE_DELAY)
             resp = self.connection.readlines()
 
-        if resp.pop().decode().strip() != "ACK":
+        if not resp or resp.pop().decode().strip() != "ACK":
             raise PanelTimeoutException(
                 f"TIMEOUT\tmissing ACK when calling '{cmd}' for {self.ident}")
 
