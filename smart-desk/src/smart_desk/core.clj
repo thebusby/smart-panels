@@ -284,7 +284,7 @@
                 (doseq [line (line-seq (io/reader socket))]
 
                   ;; Let's record some logs
-                  (log (str "LINE\t" line))
+                  (log (str "NETW\t" line))
 
                   ;; Handle the messages
                   (if-let [msg (some->> line
@@ -356,6 +356,20 @@
           (deliver prom (.take cmd-rx-q)))
         (deliver prom nil)))))
 
+(defn spawn-throt-thread
+  "Return a thread that uses evtest to monitor HOTAS throttle for events"
+  []
+  (run-trailing-q-pusher
+   ["/home/busby/env/bin/evtest"
+    "--ident" "THROT"
+    "/dev/input/by-id/usb-Thrustmaster_Throttle_-_HOTAS_Warthog-event-joystick"]
+   event-q
+   (fn [line]
+     (some->> line
+              split-tsv
+              (mapv caps-to-kw)
+              parse-event))))
+
 (defn register-default-events
   "Register default events"
   []
@@ -407,6 +421,12 @@
                           (cmd :music-panel :set :lcd :light :off)
                           (run mocp-path "--stop")))))
 
+    ;; HOTAS event test, it's ENG OPER R UP on HOTAS
+    (register-event :throt|btn-trigger-happy16
+                  (fn [{:keys [status]}]
+                    (if (= status :onn)
+                      (exec "/usr/bin/xeyes"))))
+
     ))
 
 (defn init-comp-state
@@ -424,7 +444,8 @@
                                            "192.168.1.3"
                                            5000)
         event-thread (spawn-event-thread)
-        cmd-thread (spawn-cmd-thread)]
+        cmd-thread (spawn-cmd-thread)
+        throt-thread (spawn-throt-thread)]
 
     ;; Initialize component state
     (init-comp-state)
@@ -480,6 +501,19 @@
   ;; Register all the default behavior
   (register-default-events)
 
+  ;; Start grabbing events from the Throttle
+  (def throt-thread (run-trailing-q-pusher
+                     ["/home/busby/env/bin/evtest"
+                      "--ident" "THROT"
+                      "/dev/input/by-id/usb-Thrustmaster_Throttle_-_HOTAS_Warthog-event-joystick"]
+                     event-q
+                     (fn [line]
+                       (some->> line
+                                split-tsv
+                                (mapv caps-to-kw)
+                                parse-event
+                                ))))
+
 
 
   ;; Debug commands
@@ -493,6 +527,41 @@
   (cmd :serv :close :status-panel)
 
 
+  (let [debug-key :throt|btn-trigger-happy16]
+    (register-event debug-key
+                    (fn [{:keys [status]}]
+                      (if (= status :onn)
+                        (exec "/usr/bin/xeyes")
+                        ))))
+
+
+
+
+
+(let [cmd-array ["/home/busby/env/bin/evtest"
+                 "--ident" "THROT"
+                 "/dev/input/by-id/usb-Thrustmaster_Throttle_-_HOTAS_Warthog-event-joystick"]
+      q event-q
+      parse-fn (fn [line]
+                       (some->> line
+                                split-tsv
+                                (mapv caps-to-kw)
+                                parse-event
+                                ))
+
+      ]
+ (let [rdr (-> (Runtime/getRuntime)
+               (.exec (into-array String cmd-array))
+               (.getInputStream)
+               io/reader)]
+   (doseq [line (line-seq rdr)]
+     (if-let [event-msg (parse-fn line)]
+       (do
+         (.put q event-msg)
+         (println (str "LINE: " line))
+         (println (str "MSG: " event-msg)))
+       (println (str "IGN:" line))
+       ))))
 
 
   (get-panel-state :music-panel)
@@ -525,6 +594,9 @@
   ;; For trailing output of program,
   ;; like pinger or evtest
   ;;
+
+
+
 
 
 
