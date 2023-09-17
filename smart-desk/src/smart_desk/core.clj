@@ -331,9 +331,14 @@
   []
   (thread
     (doseq [{:keys [id status] :as event} (repeatedly #(.take event-q))]
-      (swap! comp-state assoc id status)
+
+      ;; Execute handler if one is registered
       (if-let [event-handler (get @registered-events id)]
-        (event-handler event)))))
+        (event-handler event))
+
+      ;; Update global state after handler so handler can diff
+      (swap! comp-state assoc id status)
+      )))
 
 (defn spawn-cmd-thread
   "Return thread that handles executing commands"
@@ -470,7 +475,7 @@
   (def cmd-thread (spawn-cmd-thread))
 
   ;; Initialize component state
-  (init-comp-states)
+  (init-comp-state)
 
   ;; Register all the default behavior
   (register-default-events)
@@ -523,7 +528,7 @@
 
 
 
-  
+
   (-> (Runtime/getRuntime)
       (.exec (into-array String ["/usr/bin/mocp" "--format" "%state\t%title"]))
       (.getInputStream)
