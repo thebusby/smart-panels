@@ -146,14 +146,6 @@
            (zipmap [:mode :title])
            ))
 
-(defn display-mocp
-  ""
-  []
-  (let [{:keys [mode title]} (get-mocp-state)]
-    (cmd :music-panel :set :lcd :clr)
-    (cmd :music-panel :set :lcd 1 0 mode)
-    (cmd :music-panel :set :lcd 2 0 (apply str (take 20 title)))))
-
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; APP SPECIFIC FN'S
@@ -252,6 +244,14 @@
                      ))
              vec
              (into {}))))
+
+(defn display-mocp
+  ""
+  []
+  (let [{:keys [mode title]} (get-mocp-state)]
+    (cmd :music-panel :set :lcd :clr)
+    (cmd :music-panel :set :lcd 1 0 mode)
+    (cmd :music-panel :set :lcd 2 0 (apply str (take 20 title)))))
 
 (defn get-available-panels
   "Return list of available panels"
