@@ -23,6 +23,10 @@
 (defonce cmd-rx-q
   (java.util.concurrent.LinkedBlockingQueue.))
 
+;; "A queue for logging to disk"
+(defonce log-q
+  (java.util.concurrent.LinkedBlockingQueue.))
+
 ;; Stores state for each component
 (defonce comp-state
   (atom {}))
@@ -259,86 +263,107 @@
   (some->> (cmd :serv "AVAIL")
            (mapv first)))
 
+(defn get-log-fn
+  "Return a function for outputing strings to the log file.
+   Provide prefix to identify source of messages."
+  [^String prefix]
+  (fn [^String s]
+    (.put log-q (str (ts-to-local-str (current-ts)) "\t" prefix "\t" s))))
+
 (defn spawn-socket-thread
   "Spawn thread to handle socket and queues"
   [log-filename address port]
   (thread
+    (let [log (get-log-fn "NETW")]
+
+      ;; Handle the case the socket closes and we should re-open it
+      (dotimes [socket-count 100]
+
+        ;; For every socket connections
+        (log (str "CONN\t" socket-count "\t" address "\t" port))
+        (try
+          (let [socket (new Socket address port)
+                agg (atom []) ;; Maintain state to aggregate command responses
+                wtr (io/writer socket)]
+
+            ;; Register the new writer for the current socket
+            (reset! global-writer wtr)
+
+            (doseq [line (line-seq (io/reader socket))]
+
+              ;; Let's record some logs
+              (log (str "NETW\t" line))
+
+              ;; Handle the messages
+              (if-let [msg (some->> line
+                                    split-tsv
+                                    (mapv caps-to-kw))]
+                (if-let [event-msg (parse-event msg)]
+
+                  ;; If we get an event, push to event-q immediately
+                  (.put event-q event-msg)
+
+                  ;; Case this isn't an event, see if we agg or push to cmd-rx-q
+                  (if (= :ack (first msg))
+
+                    ;; Push aggregate command response
+                    (let [resp @agg]
+                      (do
+                        (.put cmd-rx-q resp)
+                        (reset! agg [])))
+
+                    ;; If we see an error, abort everything and send it up
+                    (if (= :err (first msg))
+                      (do
+                        (.put cmd-rx-q [msg])
+                        (reset! agg []))
+
+                      ;; Otherwise, just aggregate the message waiting for ACK
+                      (swap! agg conj msg)))))))
+
+          ;; Catch any exceptions, and restart connections
+          (catch InterruptedException e
+            (log "INTERUPT")
+            (throw (Exception. "Interrupt execution")))
+          (catch Exception e
+            (log (str "EXCEPTION\t" (.getMessage e)))))
+
+        ;; Wait N seconds if we get disconnected before trying again
+        (reset! global-writer nil)
+        (log (str "DISC\t" socket-count "\t" address "\t" port))
+        (Thread/sleep (* 8 1000))
+        ))))
+
+(defn spawn-log-thread
+  "Return thread that handles logging"
+  [log-filename]
+  (thread
     (with-open [logfile (io/writer log-filename :append true)]
       (binding [*out* logfile]
-        (let [log (fn [^String s]
-                    (println (str (ts-to-local-str (current-ts)) "\t" s)))]
 
-          ;; Handle the case the socket closes and we should re-open it
-          (dotimes [socket-count 100]
-
-            ;; For every socket connections
-            (log (str "CONN\t" socket-count "\t" address "\t" port))
-            (try
-              (let [socket (new Socket address port)
-                    agg (atom []) ;; Maintain state to aggregate command responses
-                    wtr (io/writer socket)]
-
-                ;; Register the new writer for the current socket
-                (reset! global-writer wtr)
-
-                (doseq [line (line-seq (io/reader socket))]
-
-                  ;; Let's record some logs
-                  (log (str "NETW\t" line))
-
-                  ;; Handle the messages
-                  (if-let [msg (some->> line
-                                        split-tsv
-                                        (mapv caps-to-kw))]
-                    (if-let [event-msg (parse-event msg)]
-
-                      ;; If we get an event, push to event-q immediately
-                      (.put event-q event-msg)
-
-                      ;; Case this isn't an event, see if we agg or push to cmd-rx-q
-                      (if (= :ack (first msg))
-
-                        ;; Push aggregate command response
-                        (let [resp @agg]
-                          (do
-                            (.put cmd-rx-q resp)
-                            (reset! agg [])))
-
-                        ;; If we see an error, abort everything and send it up
-                        (if (= :err (first msg))
-                          (do
-                            (.put cmd-rx-q [msg])
-                            (reset! agg []))
-
-                          ;; Otherwise, just aggregate the message waiting for ACK
-                          (swap! agg conj msg)))))))
-
-              ;; Catch any exceptions, and restart connections
-              (catch InterruptedException e
-                (log "INTERUPT")
-                (throw (Exception. "Interrupt execution")))
-              (catch Exception e
-                (log (str "EXCEPTION\t" (.getMessage e)))))
-
-            ;; Wait N seconds if we get disconnected before trying again
-            (reset! global-writer nil)
-            (log (str "DISC\t" socket-count "\t" address "\t" port))
-            (Thread/sleep (* 8 1000))
-            ))))))
+        ;; block waiting for messages
+        (doseq [line (repeatedly #(.take log-q))]
+          (println line))))))
 
 (defn spawn-event-thread
   "Return thread that handles processing events."
   []
   (thread
-    (doseq [{:keys [id status] :as event} (repeatedly #(.take event-q))]
+    (let [log (get-log-fn "EVENT")]
 
-      ;; Execute handler if one is registered
-      (if-let [event-handler (get @registered-events id)]
-        (event-handler event))
+      ;; Block on incoming events
+      (doseq [{:keys [id status] :as event} (repeatedly #(.take event-q))]
 
-      ;; Update global state after handler so handler can diff
-      (swap! comp-state assoc id status)
-      )))
+        ;; Log event
+        (log (str "RECV\t" id "\t" status))
+
+        ;; Execute handler if one is registered
+        (if-let [event-handler (get @registered-events id)]
+          (event-handler event))
+
+        ;; Update global state after handler so handler can diff
+        (swap! comp-state assoc id status)
+        ))))
 
 (defn spawn-cmd-thread
   "Return thread that handles executing commands"
@@ -440,7 +465,8 @@
 (defn -main
   "Spawn threads, sit back, and wait"
   [& args]
-  (let [socket-thread (spawn-socket-thread "/tmp/smart_desk.log"
+  (let [log-thread (spawn-log-thread) ;; Start this first!
+        socket-thread (spawn-socket-thread "/tmp/smart_desk.log"
                                            "192.168.1.3"
                                            5000)
         event-thread (spawn-event-thread)
