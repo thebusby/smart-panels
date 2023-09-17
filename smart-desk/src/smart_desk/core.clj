@@ -272,7 +272,7 @@
 
 (defn spawn-socket-thread
   "Spawn thread to handle socket and queues"
-  [log-filename address port]
+  [address port]
   (thread
     (let [log (get-log-fn "NETW")]
 
@@ -465,9 +465,8 @@
 (defn -main
   "Spawn threads, sit back, and wait"
   [& args]
-  (let [log-thread (spawn-log-thread) ;; Start this first!
-        socket-thread (spawn-socket-thread "/tmp/smart_desk.log"
-                                           "192.168.1.3"
+  (let [log-thread (spawn-log-thread "/tmp/smart_desk.log") ;; Start this first!
+        socket-thread (spawn-socket-thread "192.168.1.3"
                                            5000)
         event-thread (spawn-event-thread)
         cmd-thread (spawn-cmd-thread)
