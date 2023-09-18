@@ -32,6 +32,10 @@
 // in seconds
 #define RECV_TIMEOUT 1
 
+
+// Define sample size
+#define SAMPLE_SIZE 60
+
 // Define the Ping Loop
 int pingloop=1;
 
@@ -120,6 +124,7 @@ void send_ping(int ping_sockfd, struct sockaddr_in *ping_addr,
 {
 	int ttl_val=64, msg_count=0, i, addr_len, flag=1,
 			msg_received_count=0;
+  int samples[SAMPLE_SIZE];
 	
 	struct ping_pkt pckt;
 	struct sockaddr_in r_addr;
@@ -128,6 +133,9 @@ void send_ping(int ping_sockfd, struct sockaddr_in *ping_addr,
 	struct timeval tv_out;
 	tv_out.tv_sec = RECV_TIMEOUT;
 	tv_out.tv_usec = 0;
+
+  // Init samples
+  bzero( samples, (sizeof(int) * SAMPLE_SIZE));
 
 	clock_gettime(CLOCK_MONOTONIC, &tfs);
 
@@ -207,13 +215,18 @@ void send_ping(int ping_sockfd, struct sockaddr_in *ping_addr,
 				}
 				else
 				{
+          int old_rec_count = samples[ (msg_count % SAMPLE_SIZE) ];
 					msg_received_count++;
 
-          printf("RTT\t%d\t%d\t%4.0Lf\n", msg_received_count, msg_count, rtt_msec);
+
+          printf("RTT\t%d\t%d\t%d\t%4.0Lf\n", old_rec_count, msg_received_count, msg_count, rtt_msec);
 					/* printf("%d bytes from %s (h: %s) (%s) msg_seq=%d ttl=%d rtt = %Lf ms.\n",
 						PING_PKT_S, ping_dom, rev_host,
 						ping_ip, msg_count,
 						ttl_val, rtt_msec); */
+
+          // Record current rec_count
+          samples[(msg_count % SAMPLE_SIZE)] = msg_received_count;
 
 				}
 			}
