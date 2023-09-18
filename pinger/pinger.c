@@ -219,7 +219,7 @@ void send_ping(int ping_sockfd, struct sockaddr_in *ping_addr,
 					msg_received_count++;
 
 
-          printf("RTT\t%d\t%d\t%d\t%4.0Lf\n", old_rec_count, msg_received_count, msg_count, rtt_msec);
+          printf("RTT\t%d\t%d\t%d\t%4.0Lf\n", (old_rec_count ? (msg_received_count - (old_rec_count + 60)) : 0), msg_received_count, msg_count, rtt_msec);
 					/* printf("%d bytes from %s (h: %s) (%s) msg_seq=%d ttl=%d rtt = %Lf ms.\n",
 						PING_PKT_S, ping_dom, rev_host,
 						ping_ip, msg_count,
