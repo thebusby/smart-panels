@@ -1167,15 +1167,15 @@ char* com_prot_get(Panel* panel, char* args) {
 
   comp_name = pop_token(args, &params);
   if (comp_name) {
-    for (i = 0; panel->outputs[i]; i++)
-      if (strcasecmp(comp_name, panel->outputs[i]->id) == 0)
+    for (i = 0; panel->inputs[i]; i++)
+      if (strcasecmp(comp_name, panel->inputs[i]->id) == 0)
         break;
   } else {
     return "ERR\tComponent name not found in GET command";
   }
 
-  if (panel->outputs[i]) {
-    panel->outputs[i]->getMessage(panel->buf);
+  if (panel->inputs[i]) {
+    panel->inputs[i]->getMessage(panel->buf);
     Serial.println(panel->buf);
     Serial.flush();
 

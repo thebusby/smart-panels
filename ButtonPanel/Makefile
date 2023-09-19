@@ -9,11 +9,11 @@ AUTOGEN_NEXT := $(shell expr $$(awk '/#define BUILD_NUMBER/' $(AUTOGEN_FILE) | t
 .PHONY: version upload connect clean
 
 all: $(PANEL)/Panel.h $(PANEL)/$(PANEL).ino version
-	echo $(CLITOOL) compile --fqbn $(FBQN) $(PANEL)
+	$(CLITOOL) compile --fqbn $(FBQN) $(PANEL)
 version:
 	sed -i "s/#define BUILD_NUMBER .*/#define BUILD_NUMBER \"$(AUTOGEN_NEXT)\"/" $(AUTOGEN_FILE)
 	sed -i "s/#define BUILD_DATE.*/#define BUILD_DATE \"$$(date +'%Y%m%d%H%M')\"/" $(AUTOGEN_FILE)
 upload:
-	echo $(CLITOOL) upload -p $(DEVICE) --fqbn $(FBQN) $(PANEL)
+	$(CLITOOL) upload -p $(DEVICE) --fqbn $(FBQN) $(PANEL)
 connect:
-	echo screen $(DEVICE) 115200
+	screen $(DEVICE) 115200

@@ -1,3 +1,4 @@
+#define PCF8575_SUPPORT
 #include "Panel.h"
 
 
