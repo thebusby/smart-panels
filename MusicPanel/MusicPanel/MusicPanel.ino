@@ -36,7 +36,7 @@ void setup() {
 
     // Initialize panel
     if(!panel->setup()) {
-      Serial.println("Panel init failed, do something!");
+      Serial.println("ERR Panel init failed, do something!");
       Serial.flush();
     }
 }

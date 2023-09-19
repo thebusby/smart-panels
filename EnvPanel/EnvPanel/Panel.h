@@ -559,7 +559,7 @@ class SsfdComponent : public OutputComponent {
   }
 
   // Call with nolead = 0 to have in skip leading zeros
-  void display_digit_no_leading_zero(int8_t num, uint8_t nolead=1) {
+  void display_digits(int8_t num, uint8_t nolead=1) {
     uint8_t i=0;
     uint8_t base=1000;
 
@@ -752,6 +752,10 @@ public:
     sprintf(buf, "%s\t%s\t%hhu", id, getCTypeName(type), this->_co2);
   }
 
+  uint8_t get_co2() {
+    return this->_co2;
+  }
+
   uint8_t readCO2PWM() {
     uint32_t th, tl, ppm_pwm = 0;
     do {
@@ -828,6 +832,14 @@ public:
 
   void getMessage(char* buf) {
     sprintf(buf, "%s\t%s\t%hhu|%hhu", id, getCTypeName(type), this->_t, this->_h);
+  }
+
+  uint8_t get_temp() {
+    return _t;
+  }
+
+  uint8_t get_humidity() {
+    return _h;
   }
 
   bool setup() {
