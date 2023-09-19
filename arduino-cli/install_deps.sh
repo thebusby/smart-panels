@@ -27,8 +27,6 @@ arduino-cli lib install 'DHT sensor library'
 # :URL: https://github.com/Seeed-Studio/Grove_4Digital_Display
 arduino-cli lib install 'Grove 4-Digit Display'
 
-Adafruit_MCP23017
-
 # Support DS3231M RTC (Real-Time-Clock)
 # By Arnd <Zanshin_Github@sv-zanshin.com>
 # :VERSION: 1.0.6
@@ -46,3 +44,6 @@ arduino-cli lib install 'LedControl'
 # :VERSION: 1.3.0
 # :URL: https://github.com/adafruit/Adafruit-MCP23017-Arduino-Library
 arduino-cli lib install 'Adafruit MCP23017 Arduino Library'
+
+# Support Arduino Nano boards via arduino-cli
+arduino-cli core install arduino:avr
