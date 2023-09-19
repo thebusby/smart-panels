@@ -27,6 +27,15 @@ HEALTHCHECK_TIME = 120
 SHUTDOWN_ON_EXCEPTION = False
 
 
+def log(tag, logline) -> None:
+    """
+    Record log record to STDOUT
+
+    :param logline: str to write
+    """
+    print(f"{time.ctime()}\t{tag}\t{logline}")
+
+
 class PanelTimeoutException(Exception):
     "Raised when a panel timeout's on command"
     pass
@@ -190,7 +199,7 @@ class Panel:
         if not re.search("PANEL$", self.ident):
             self.connection.close()
             raise ValueError(
-                f"{self.port} identifies as {self.ident} and not PANEL")
+                f"{self.port} identifies as '{self.ident}' and not PANEL")
 
         self.mark()
 
@@ -219,7 +228,7 @@ class Panel:
 
         if resp != "PONG":
             # TODO: Isn't this a failure state? Restart connection?
-            print(f"DEBUG\t{time.ctime()}\tPing failed for {self.ident}")
+            log("PING", f"DEBUG\t{time.ctime()}\tPing failed for {self.ident}")
 
 
 def get_send_fn(conn) -> Callable[[str], None]:
@@ -257,7 +266,7 @@ def handle_event(send,  panel) -> None:
     if event_str:
         send(f"{panel.ident}\t{event_str}")
     else:
-        print(f"NOTE\t{panel.ident}.get_event() returned None\n")
+        log("EVENT", f"NOTE\t{panel.ident}.get_event() returned None\n")
         # raise RuntimeError(f"{panel.ident}.get_event() returned None\n")
 
 
@@ -282,7 +291,7 @@ def handle_network_command(conn) -> bool:
     try:
         data = conn.recv(1024)
     except OSError as err:
-        print(f"DISCONNECT\tOSError on recv\t{type(err)=}\t{err=}")
+        log("ERR", f"DISCONNECT\tOSError on recv\t{type(err)=}\t{err=}")
         return False
 
     # The case the connection is closed
@@ -298,7 +307,7 @@ def handle_network_command(conn) -> bool:
     # Validate input
     if cline is None:
         send("ERR\tMalformed command")
-        print(f"Malformed command: {data}\n")
+        log("ERR", f"Malformed command: {data}\n")
         return True
 
     try:
@@ -320,14 +329,15 @@ def handle_network_command(conn) -> bool:
                     panel.open()
 
                 except Exception as err:
-                    print(f"ERROR\twhile doing\t'{data}'")
-                    print(f"EXCEPTION\t{err=}\t{type(err)}")
-                    print(traceback.format_exc())
+                    log("ERR", f"ERROR\twhile doing\t'{data}'")
+                    log("ERR", f"EXCEPTION\t{err=}\t{type(err)}")
+                    log("ERR", traceback.format_exc())
                     send(f"ERR\t{err=}")
                     return True
 
                 if panel.ident is not None:
                     Panel.add_panel(panel)
+                    log("LOG", f"OPEN\t{panel.ident}\t{panel.port}")
                     send(panel.ident)
 
             elif cmd == "OPENALL":
@@ -338,9 +348,11 @@ def handle_network_command(conn) -> bool:
 
                         if panel.ident is not None:
                             Panel.add_panel(panel)
+                            log("LOG", f"OPENALL\t{panel.ident}\t{panel.port}")
                             send(f"{panel.ident}\t{device}")
                     except Exception as err:
-                        print(f"OPENALL\tERR\t{device}\t{type(err)=}\t{err=}")
+                        log("ERR",
+                            f"OPENALL\tERR\t{device}\t{type(err)=}\t{err=}")
 
             elif cmd == "CLOSE":
                 if params is None:
@@ -353,11 +365,12 @@ def handle_network_command(conn) -> bool:
 
                 else:
                     panel.close()
+                    log("LOG", f"CLOSE\t{panel.ident}\t{panel.port}")
                     Panel.delete_panel(params)
 
             elif cmd == "AVAIL":
-                for panel in Panel.panels.keys():
-                    send(panel)
+                for panel in Panel.panels.values():
+                    send(f"{panel.ident}\t{panel.port}")
 
             elif cmd == "DEBUG":
                 if params is None:
@@ -388,6 +401,7 @@ def handle_network_command(conn) -> bool:
                 handle_panel_command(send, panel, cline)
 
     except PanelTimeoutException as err:
+        log("ERR", f"Panel Timeout Exception\t{err=}")
         send(f"ERR\tTIMEOUT\t{err=}")
 
     return True
@@ -427,13 +441,15 @@ def server_program() -> None:
                     if fd is server_socket:
                         client_socket, address = server_socket.accept()
                         rlist.append(client_socket)
-                        print("CONN\t" + str(address[0]))
+                        log("LOG", f"CONN\t{str(address[0])}")
 
                     # Case we have an EVENT from a panel
                     elif fd in list(Panel.panels.values()):
                         # Gotta send event to each network connection
                         event_str = fd.get_event()
                         if event_str:
+
+                            # Don't send the event to the server socket...
                             for conn in filter(
                                 lambda fd: fd is not server_socket,
                                 rlist,
@@ -456,6 +472,7 @@ def server_program() -> None:
                             fd.close()
                             rlist.remove(fd)
 
+                # Iterate through panels to perform healthchecks
                 for panel in Panel.panels.values():
                     if panel.is_healthcheck_needed():
                         try:
@@ -473,12 +490,12 @@ def server_program() -> None:
                                     .encode())
 
                 for x in xl:
-                    print(f"DEBUG\tselect().xl is {x}")
+                    log("DEBUG", f"select().xl is {x}")
 
             except Exception as err:
                 # Log exception
-                print(f"TOPEXCEPT\t{err=}\t{type(err)=}")
-                print(traceback.format_exc())
+                log("ERR", f"TOPEXCEPT\t{err=}\t{type(err)=}")
+                log("ERR", traceback.format_exc())
 
                 # Send info to clients
                 for conn in filter(
@@ -490,7 +507,7 @@ def server_program() -> None:
                 if SHUTDOWN_ON_EXCEPTION:
                     panels = list(Panel.panels.values())
                     for panel in panels:
-                        print(f"Closing panel {panel.ident}")
+                        log("LOG", f"Closing panel {panel.ident}")
                         Panel.delete_panel(panel.ident)
                         panel.close()
 
