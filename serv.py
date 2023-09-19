@@ -189,7 +189,7 @@ class Panel:
         self.connection = serial.Serial(self.port, 115200, timeout=0)
 
         # Clear the serial buffer of any debug information
-        time.sleep(2)  # Wait to fill buffer
+        time.sleep(1)  # Wait to fill buffer
         _ = self.connection.readlines()  # Capture debug data and ignore
         time.sleep(DEVICE_RESPONSE_DELAY)  # Wait to fill buffer
 
