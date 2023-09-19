@@ -55,15 +55,15 @@ void loop() {
 
   // Handle custom panel behavour 
   if(is_tc_alert(timer)) {
-      uint8_t t = dht->get_temp();
-      uint8_t h = dht->get_humidity();
-      uint8_t c = mhz19->get_co2();
+      uint16_t t = dht->get_temp();
+      uint16_t h = dht->get_humidity();
+      uint16_t c = mhz19->get_co2();
 
       ssfd_tmp->display_digits(t, 0);
-      ssfd_tmp->display_digit(0, 'C');
+      // ssfd_tmp->display_digit(0, 'C');
 
       ssfd_hum->display_digits(h, 0);
-      ssfd_hum->display_digit(0, 'H');
+      // ssfd_hum->display_digit(0, 'H');
 
       ssfd_co2->display_digits(c, 1);
 

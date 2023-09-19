@@ -547,6 +547,7 @@ public:
 
   bool setup() {
     _tm1637->init();
+    _tm1637->point(false);
     _tm1637->set(_brightness);
 
     return true;
@@ -555,16 +556,16 @@ public:
   // Display a single character at a given position
   // Supports numbers and a limited number of characters
   void display_digit(uint8_t pos, int8_t data) {
-    this->_tm1637->display(pos, data);
+    _tm1637->display(pos, data);
   }
 
   // Call with nolead = 0 to have in skip leading zeros
-  void display_digits(int8_t num, uint8_t nolead=1) {
+  void display_digits(uint16_t num, uint8_t nolead=1) {
     uint8_t i=0;
-    uint8_t base=1000;
+    uint16_t base=1000;
 
     for(i=0; i<4; i++) {
-      uint8_t digit = ((num / base) % 10);
+      int8_t digit = ((num / base) % 10);
 
       if (digit || nolead) {
         display_digit(i, digit);
