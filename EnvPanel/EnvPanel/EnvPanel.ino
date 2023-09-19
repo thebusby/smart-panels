@@ -10,7 +10,7 @@
  * Define Panel Specific Values here
  */
 
-DhtComponent* dht = new DhtComponent("DHT", 9, DHT11);
+DhtComponent* dht = new DhtComponent("DHT", 9, DHT11, 15000); // Update every 15 seconds
 Mhz19Component* mhz19 = new Mhz19Component("CO2", 10);
 
 InputComponent* inputs[] =
@@ -59,11 +59,11 @@ void loop() {
       uint16_t h = dht->get_humidity();
       uint16_t c = mhz19->get_co2();
 
+      ssfd_tmp->display_digit(0, 12); // Add C to display
       ssfd_tmp->display_digits(t, 0);
-      // ssfd_tmp->display_digit(0, 'C');
 
+      // ssfd_hum->display_digit(0, 'H'); // This doesn't work yet...
       ssfd_hum->display_digits(h, 0);
-      // ssfd_hum->display_digit(0, 'H');
 
       ssfd_co2->display_digits(c, 1);
 
