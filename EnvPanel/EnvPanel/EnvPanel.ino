@@ -10,7 +10,7 @@
  * Define Panel Specific Values here
  */
 
-DhtComponent* dht = new DhtComponent("DHT", DHT11, 9);
+DhtComponent* dht = new DhtComponent("DHT", 9, DHT11);
 Mhz19Component* mhz19 = new Mhz19Component("CO2", 10);
 
 InputComponent* inputs[] =
