@@ -1,6 +1,7 @@
 #ifndef Panel_h
 #define Panel_h
 #include "Arduino.h"
+#include "version.h"
 
 
 #define SERIAL_BUFFER_SIZE 64  // 64 - "\r\n"
@@ -1000,6 +1001,7 @@ typedef struct cmd {
 
 /* Protocol handlers */
 char* com_prot_ident(Panel*, char*);
+char* com_prot_version(Panel*, char*);
 char* com_prot_desc(Panel*, char*);
 char* com_prot_ping(Panel*, char*);
 char* com_prot_set(Panel*, char*);
@@ -1008,6 +1010,7 @@ char* com_prot_get(Panel*, char*);
 /* List of commands */
 cmd_t command[] = {
   { "IDENT", com_prot_ident },
+  { "VERSION", com_prot_version },
   { "PING", com_prot_ping },
   { "DESC", com_prot_desc },
   { "SET", com_prot_set },
@@ -1106,6 +1109,13 @@ char* com_prot_ident(Panel* panel, char* args) {
   return panel->id;
 }
 
+char* com_prot_version(Panel* panel, char* args) {
+  snprintf(panel->buf, (SERIAL_BUFFER_SIZE-3), "VER\t%s\t%s", BUILD_NUMBER, BUILD_DATE);
+  Serial.println(panel->buf);
+  Serial.flush();
+  return "ACK";
+}
+
 char* com_prot_ping(Panel* panel, char* args) {
   return "PONG";
 }
@@ -1151,6 +1161,27 @@ char* com_prot_set(Panel* panel, char* args) {
 }
 
 char* com_prot_get(Panel* panel, char* args) {
+  uint8_t i;
+  char* comp_name = NULL;
+  char* params = NULL;
+
+  comp_name = pop_token(args, &params);
+  if (comp_name) {
+    for (i = 0; panel->outputs[i]; i++)
+      if (strcasecmp(comp_name, panel->outputs[i]->id) == 0)
+        break;
+  } else {
+    return "ERR\tComponent name not found in GET command";
+  }
+
+  if (panel->outputs[i]) {
+    panel->outputs[i]->getMessage(panel->buf);
+    Serial.println(panel->buf);
+    Serial.flush();
+
+  } else
+    return "ERR\tComponent not found in GET command";
+
   return "ACK";
 }
 
