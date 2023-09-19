@@ -10,12 +10,12 @@
  * Define Panel Specific Values here
  */
 
-DhtComponent* dht = new DhtComponent("DHT", 9);
-Mhz19Component* mhz19 = new Mhz19Component("CO2", 10),
+DhtComponent* dht = new DhtComponent("DHT", DHT11, 9);
+Mhz19Component* mhz19 = new Mhz19Component("CO2", 10);
 
-InputComponents *inputs[] =
+InputComponent* inputs[] =
 {
-new ToggleComponent("BLK_TOG", new DirectIOMethod(11, iomt_input)),
+// new ToggleComponent("BLK_TOG", new DirectIOMethod(11, iomt_input)), // Doesn't seem to work at all
 new ToggleComponent("RED_TOG", new DirectIOMethod(12, iomt_input)),
 // new EncoderComponent("RE", new DirectIOMethod(2, iomt_input_pullup), new DirectIOMethod(3, iomt_input_pullup) ),
 mhz19,
@@ -27,7 +27,7 @@ SsfdComponent* ssfd_co2 = new SsfdComponent("SSFD_CO2", 4, 5);
 SsfdComponent* ssfd_hum = new SsfdComponent("SSFD_HUM", 4, 6);
 SsfdComponent* ssfd_tmp = new SsfdComponent("SSFD_TMP", 4, 7);
 
-OutputComponent *outputs[] = 
+OutputComponent* outputs[] = 
 {
 ssfd_co2,
 ssfd_tmp,
@@ -55,9 +55,9 @@ void loop() {
 
   // Handle custom panel behavour 
   if(is_tc_alert(timer)) {
-      uint8_t t = dht.get_temp();
-      uint8_t h = dht.get_humidity();
-      uint8_t c = mhz19.get_co2();
+      uint8_t t = dht->get_temp();
+      uint8_t h = dht->get_humidity();
+      uint8_t c = mhz19->get_co2();
 
       ssfd_tmp->display_digits(t, 0);
       ssfd_tmp->display_digit(0, 'C');
@@ -67,6 +67,6 @@ void loop() {
 
       ssfd_co2->display_digits(c, 1);
 
-      timer = get_tc_alert(POLL_INTERVAL)
+      timer = get_tc_alert(POLL_INTERVAL);
     }
 }

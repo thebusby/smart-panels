@@ -248,6 +248,7 @@ enum ComponentType {
   encoder_type,
   led_type,
   dht_type,
+  mhz19_type,
   ssfd_type,
   ssed_type,
   rtc_type,
@@ -270,6 +271,8 @@ char* getCTypeName(ComponentType type) {
       return "LED";
     case dht_type:
       return "DHT";
+    case mhz19_type:
+      return "MHZ19";
     case ssfd_type:
       return "SSFD";
     case ssed_type:
@@ -451,16 +454,13 @@ private:
 #include <TM1637.h>
 
 class SsfdComponent : public OutputComponent {
-  SsfhComponent(char* id, uint8_t clock_pin, uint8_t data_pin)
+public:
+  SsfdComponent(char* id, uint8_t clock_pin, uint8_t data_pin)
     : OutputComponent(id, ssfd_type) {
       this->_tm1637 = new TM1637(clock_pin, data_pin);
 
       // Init values
       this->_brightness = 1;
-      this->_data[0] = 0;
-      this->_data[1] = 0;
-      this->_data[2] = 0;
-      this->_data[3] = 0;
   }
 
   char* set(char* args) {
@@ -478,7 +478,7 @@ class SsfdComponent : public OutputComponent {
     // Clear the entire screen
     if(strcasecmp(line_num, "CLR") == 0) 
     {
-      _tm1636->clearDisplay();
+      _tm1637->clearDisplay();
 
       return "ACK";
     }
@@ -504,7 +504,7 @@ class SsfdComponent : public OutputComponent {
           && (params[0] <= '7') ) {
         this->_brightness = params[0] - '0';
       }else{
-        return "ERR Valid LIGHT values are 0-7"
+        return "ERR Valid LIGHT values are 0-7";
       }
 
       return "ACK";
@@ -718,10 +718,11 @@ private:
 
 class Mhz19Component : public InputComponent {
 public:
-  DhtComponent(char* id, uint8_t pin, uint32_t interval = 60000)
-    : InputComponent(id, dht_type) {
+  Mhz19Component(char* id, uint8_t pin, uint32_t interval = 60000)
+    : InputComponent(id, mhz19_type) {
       this->_pin = pin;
       this->_interval = interval;
+      this->_timer = 0;
       this->_co2 = 0;
   }
 
@@ -761,11 +762,11 @@ public:
     do {
       th = pulseIn(this->_pin, HIGH, 1004000) / 1000;
       tl = 1004 - th;
-      ppm_pwm = 5000 * (th - 2) / (th + tl - 4); // Assumes max of 5000 with PWM mode
-      // ppm_pwm = 2000 * (th - 2) / (th + tl - 4); // Assumes max of 2000 with PWM mode
+      // ppm_pwm = 5000 * (th - 2) / (th + tl - 4); // Assumes max of 5000 with PWM mode
+      ppm_pwm = 2000 * (th - 2) / (th + tl - 4); // Assumes max of 2000 with PWM mode
     } while (th == 0);
 
-    return (uint8_t)ppm_pwm;
+    return (uint8_t)(ppm_pwm*2); // Multiplied by two, cause that seems more realistic
   }
 
   bool setup() {
@@ -798,6 +799,7 @@ public:
     : InputComponent(id, dht_type) {
       this->_dht = new DHT(pin, type);
       this->_interval = interval;
+      this->_timer = 0;
       this->_t = 0;
       this->_h = 0;
   }
@@ -807,8 +809,10 @@ public:
     // Update system details if it's time
     if(is_tc_alert(_timer)) {
       bool rc = false;
-      uint8_t t = (uint8_t)_dht->readTemperature();
-      uint8_t h = (uint8_t)_dht->readHumidity();
+      uint16_t xt = (uint16_t)(_dht->readTemperature());
+      uint16_t xh = (uint16_t)(_dht->readHumidity());
+      uint8_t t = (uint8_t)xt;
+      uint8_t h = (uint8_t)xh;
 
       // Update state if something changed
       if(t != _t) {
