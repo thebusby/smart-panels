@@ -17,6 +17,10 @@
   "Default filename to use for logging"
   "/tmp/smart_desk.log")
 
+(def mute-logs-by-prefix
+  "A set of log prefixes to mute"
+  #{})
+
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; Global State
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
@@ -284,8 +288,10 @@
   "Return a function for outputing strings to the log file.
    Provide prefix to identify source of messages."
   [^String prefix]
-  (fn [^String s]
-    (.put log-q (str (ts-to-local-str (current-ts)) "\t" prefix "\t" s))))
+  (if (get mute-logs-by-prefix prefix)
+    (fn [_] )
+    (fn [^String s]
+      (.put log-q (str (apply str (take 19 (ts-to-local-str (current-ts)))) "\t" prefix "\t" s)))))
 
 (defn spawn-socket-thread
   "Spawn thread to handle socket and queues"
@@ -312,7 +318,7 @@
             (doseq [line (line-seq (io/reader socket))]
 
               ;; Let's record some logs
-              (log (str "NETW\t" line))
+              (log (str "LINE\t" line))
 
               ;; Handle the messages
               (if-let [msg (some->> line
