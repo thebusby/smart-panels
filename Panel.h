@@ -247,6 +247,11 @@ enum ComponentType {
   switch_type,
   encoder_type,
   led_type,
+  dht_type,
+  mhz19_type,
+  ssfd_type,
+  ssed_type,
+  rtc_type,
   rgbled_type,
   loglcd_type,
   panel_type
@@ -264,6 +269,16 @@ char* getCTypeName(ComponentType type) {
       return "ENC";
     case led_type:
       return "LED";
+    case dht_type:
+      return "DHT";
+    case mhz19_type:
+      return "MHZ19";
+    case ssfd_type:
+      return "SSFD";
+    case ssed_type:
+      return "SSED";
+    case rtc_type:
+      return "RTC";
     case rgbled_type:
       return "RGBLED";
     case loglcd_type:
@@ -280,7 +295,12 @@ public:
   char* id;
   ComponentType type;
 
+  // Return component state;
+  // if poll() is true, this is returned as EVENT
+  // also returned by GET command
   virtual void getMessage(char*) = 0;
+
+  // Called during initial Setup() phase
   virtual bool setup() = 0;
 
   Component(char* id, ComponentType type) {
@@ -294,6 +314,9 @@ public:
   InputComponent(char* id, ComponentType type)
     : Component(id, type){};
 
+  // Checks to see if InputComponent has changed
+  // Is called every iteration of loop()
+  // if returns true, getMessage() is returned as an EVENT
   virtual bool poll() = 0;
 };
 
@@ -302,7 +325,13 @@ public:
   OutputComponent(char* id, ComponentType type)
     : Component(id, type){};
 
+  // Provide command data to the device to perform
+  // some kind of action
   virtual char* set(char*) = 0;
+
+  // Calls the output component every loop iteration
+  // so output component can update itself.
+  // Ex. Flashing for LED
   virtual void update() = 0;
 };
 
@@ -417,6 +446,142 @@ private:
   uint32_t _flash_interval = 0;
 };
 
+
+//
+// SSFD_SUPPORT
+//
+#ifdef SSFD_SUPPORT
+#include <TM1637.h>
+
+class SsfdComponent : public OutputComponent {
+public:
+  SsfdComponent(char* id, uint8_t clock_pin, uint8_t data_pin)
+    : OutputComponent(id, ssfd_type) {
+      this->_tm1637 = new TM1637(clock_pin, data_pin);
+
+      // Init values
+      this->_brightness = 1;
+  }
+
+  char* set(char* args) {
+    char* line_num;
+    char* pos;
+    uint8_t pos_num;
+    int8_t pos_val;
+    char* params;
+    char* output;
+
+    line_num = pop_token(args, &params);
+    if (!line_num)
+      return "ERR\tSET wanted pos num";
+
+    // Clear the entire screen
+    if(strcasecmp(line_num, "CLR") == 0) 
+    {
+      _tm1637->clearDisplay();
+
+      return "ACK";
+    }
+
+    // Handle backlight
+    if(strcasecmp(line_num, "LIGHT") == 0) 
+    {
+      if(strcasecmp(params, "OFF") == 0) {
+        this->_brightness = 0;
+
+        return "ACK";
+      }
+
+      if(strcasecmp(params, "ONN") == 0) {
+        this->_brightness = 1;
+
+        return "ACK";
+      }
+     
+      // This should be 0-7
+      if( (params[0]) 
+          && (params[0] >= '0') 
+          && (params[0] <= '7') ) {
+        this->_brightness = params[0] - '0';
+      }else{
+        return "ERR Valid LIGHT values are 0-7";
+      }
+
+      return "ACK";
+    }
+
+    // Treat it as a one digit line number
+    switch (line_num[0]) {
+      case '1':
+        pos_num = 0;
+        break;
+      case '2':
+        pos_num = 1;
+        break;
+      case '3':
+        pos_num = 2;
+        break;
+      case '4':
+        pos_num = 3;
+        break;
+      default:
+        return "ERR SET invalid pos num";
+    }
+
+    pos = pop_token(params, &output);
+    if (!pos)
+      return "ERR SET needs value after pos num";
+
+    display_digit(pos_num, pos[0]);
+    
+    return "ACK";
+  }
+
+  void update() {
+    // We do nothing on update()
+  }
+
+  void getMessage(char* buf) {
+    sprintf(buf, "%s\t%s\t%hhu", id, getCTypeName(type), _brightness);
+  }
+
+  bool setup() {
+    _tm1637->init();
+    _tm1637->point(false);
+    _tm1637->set(_brightness);
+
+    return true;
+  }
+
+  // Display a single character at a given position
+  // Supports numbers and a limited number of characters
+  void display_digit(uint8_t pos, int8_t data) {
+    _tm1637->display(pos, data);
+  }
+
+  // Call with nolead = 0 to have in skip leading zeros
+  void display_digits(uint16_t num, uint8_t nolead=1) {
+    uint8_t i=0;
+    uint16_t base=1000;
+
+    for(i=0; i<4; i++) {
+      int8_t digit = ((num / base) % 10);
+
+      if (digit || nolead) {
+        display_digit(i, digit);
+        nolead=1;
+      }
+      base = base / 10;
+    }
+  }
+
+private:
+  TM1637* _tm1637;
+  uint8_t _brightness; // Value is 0-7
+};
+
+
+#endif // #ifdef SSFD_SUPPORT
 
 //
 // LCD20X4_SUPPORT
@@ -545,6 +710,155 @@ private:
 
 
 #endif // #ifdef LCD20X4_SUPPORT
+
+
+//
+// MHZ19 (CO2) Sensor support
+//
+#ifdef MHZ19_SUPPORT
+
+class Mhz19Component : public InputComponent {
+public:
+  Mhz19Component(char* id, uint8_t pin, uint32_t interval = 60000)
+    : InputComponent(id, mhz19_type) {
+      this->_pin = pin;
+      this->_interval = interval;
+      this->_co2 = 0;
+  }
+
+  bool poll() {
+
+    // Update system details if it's time
+    if(is_tc_alert(_timer)) {
+      bool rc = false;
+      uint16_t co2 = readCO2PWM();
+
+      // Update state if something changed
+      if(co2 != _co2) {
+        _co2 = co2;
+        rc = true;
+      }
+
+      // Reset timer
+      _timer = get_tc_alert(_interval);
+
+      return rc;
+    }
+
+    // No update
+    return false;
+  }
+
+  void getMessage(char* buf) {
+    sprintf(buf, "%s\t%s\t%hhu", id, getCTypeName(type), this->_co2);
+  }
+
+  uint16_t get_co2() {
+    return this->_co2;
+  }
+
+  uint16_t readCO2PWM() {
+    uint32_t th, tl, ppm_pwm = 0;
+    do {
+      th = pulseIn(this->_pin, HIGH, 1004000) / 1000;
+      tl = 1004 - th;
+      // ppm_pwm = 5000 * (th - 2) / (th + tl - 4); // Assumes max of 5000 with PWM mode
+      ppm_pwm = 2000 * (th - 2) / (th + tl - 4); // Assumes max of 2000 with PWM mode
+    } while (th == 0);
+
+    return (uint16_t)(ppm_pwm*2); // Multiplied by two, cause that seems more realistic
+  }
+
+  bool setup() {
+    pinMode(this->_pin, INPUT);
+    _timer = 0;
+
+    return true;
+  }
+
+private:
+  uint8_t _pin;
+  uint32_t _interval;
+  tick _timer;
+  uint16_t _co2;
+};
+
+#endif // #ifdef MHZ19_SUPPORT 
+
+
+//
+// DHT Sensor support
+// 
+#ifdef DHT_SUPPORT
+#include <DHT.h>
+
+class DhtComponent : public InputComponent {
+public:
+  // type is either DHT11 or DHT22
+  DhtComponent(char* id, uint8_t pin, uint8_t type, uint32_t interval = 60000)
+    : InputComponent(id, dht_type) {
+      this->_dht = new DHT(pin, type);
+      this->_interval = interval;
+      this->_t = 0;
+      this->_h = 0;
+  }
+
+  bool poll() {
+
+    // Update system details if it's time
+    if(is_tc_alert(_timer)) {
+      bool rc = false;
+      uint16_t t = (uint16_t)_dht->readTemperature();
+      uint16_t h = (uint16_t)_dht->readHumidity();
+
+      // Update state if something changed
+      if(t != _t) {
+        _t = t;
+        rc = true;
+      }
+      if(h != _h) {
+        _h = h;
+        rc = true;
+      }
+
+      // Reset timer
+      _timer = get_tc_alert(_interval);
+
+      return rc;
+    }
+
+    // No update
+    return false;
+  }
+
+  void getMessage(char* buf) {
+    sprintf(buf, "%s\t%s\t%hhu|%hhu", id, getCTypeName(type), _t, _h);
+  }
+
+  uint16_t get_temp() {
+    return _t;
+  }
+
+  uint16_t get_humidity() {
+    return _h;
+  }
+
+  bool setup() {
+    _dht->begin();
+    _timer = 0;
+
+    return true;
+  }
+
+private:
+  DHT* _dht;
+  uint32_t _interval;
+  tick _timer;
+  uint16_t _t;
+  uint16_t _h;
+};
+
+#endif // #ifdef DHT_SUPPORT
 
 
 //
