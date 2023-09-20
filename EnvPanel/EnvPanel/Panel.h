@@ -818,7 +818,7 @@ public:
       }
       if(h != _h) {
         _h = h;
-        rc = true;
+        // rc = true; // We're not going to report on changes to humidity, that's not really an EVENT
       }
 
       // Reset timer

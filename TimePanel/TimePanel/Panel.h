@@ -1338,6 +1338,7 @@ public:
 
       // Update state if something changed
       if(co2 != _co2) {
+      // if((co2 / 10) != (_co2 / 10)) {
         _co2 = co2;
         rc = true;
       }
@@ -1421,7 +1422,7 @@ public:
       }
       if(h != _h) {
         _h = h;
-        rc = true;
+        // Not gonna report humidity changes as EVENT
       }
 
       // Reset timer

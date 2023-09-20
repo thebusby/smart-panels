@@ -1,11 +1,21 @@
 (ns smart-desk.core
   (:require [clojure.java.io :as io]
             )
-  (:import [java.net Socket])
+  (:import [java.net Socket SocketTimeoutException
+            ])
 
   (:use bagotricks)
   (:gen-class))
 
+
+
+(def ping-interval
+  "Sets the interval of health checks in milliseconds "
+  60000)
+
+(def log-filename
+  "Default filename to use for logging"
+  "/tmp/smart_desk.log")
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 ;; Global State
@@ -205,14 +215,21 @@
              :ts (current-ts)
              ))))
 
-(defn cmd-string
+(defn cmd-string-promise
   "Takes a Panel command, and returns the response.
    Does this via the cmd-tx-q so that only a single
    command is run at a time."
   [^String msg]
   (let [resp (promise)]
     (.put cmd-tx-q [msg resp])
-    @resp))
+    resp))
+
+(defn cmd-string
+  "Takes a Panel command, and returns the response.
+   Does this via the cmd-tx-q so that only a single
+   command is run at a time."
+  [^String msg]
+  (deref (cmd-string-promise msg)))
 
 (defn cmd
   "Accept a command"
@@ -286,6 +303,9 @@
                 agg (atom []) ;; Maintain state to aggregate command responses
                 wtr (io/writer socket)]
 
+            ;; Set a timeout on the socket to prevent hangs
+            (.setSoTimeout socket (* 2 ping-interval))
+
             ;; Register the new writer for the current socket
             (reset! global-writer wtr)
 
@@ -321,10 +341,15 @@
                       ;; Otherwise, just aggregate the message waiting for ACK
                       (swap! agg conj msg)))))))
 
+
           ;; Catch any exceptions, and restart connections
           (catch InterruptedException e
             (log "INTERUPT")
             (throw (Exception. "Interrupt execution")))
+
+          (catch SocketTimeoutException e
+            (log "SOCKET_TIMEOUT"))
+
           (catch Exception e
             (log (str "EXCEPTION\t" (.getMessage e)))))
 
@@ -380,6 +405,24 @@
           ;; Deliver the passed promise, block no cmd-rx-q
           (deliver prom (.take cmd-rx-q)))
         (deliver prom nil)))))
+
+(defn spawn-hc-thread
+  "Return thread that executes PING every ping-interval milliseconds"
+  []
+  (thread
+    (let [log (get-log-fn "PING")]
+      (loop [x 1]
+        (if-let [[[pong]] (deref (cmd-string-promise "SERV PING")
+                                 ping-interval
+                                 nil)]
+          (if (= pong :pong)
+            (log (str "PING\t" x "\tPASSED"))
+            (log (str "PING\t" x "\tFAILEDtNOTPONG")))
+          (log (str "PING\t" x "\tFAILED\tTIMEOUT")))
+
+        ;; Wait, and then loop
+        (Thread/sleep ping-interval)
+        (recur (inc x))))))
 
 (defn spawn-throt-thread
   "Return a thread that uses evtest to monitor HOTAS throttle for events"
@@ -470,6 +513,7 @@
                                            5000)
         event-thread (spawn-event-thread)
         cmd-thread (spawn-cmd-thread)
+        hc-thread (spawn-hc-thread)
         throt-thread (spawn-throt-thread)]
 
     ;; Initialize component state
@@ -477,15 +521,6 @@
 
     ;; Register events before we sleep
     (register-default-events)
-
-    ;; Kickoff PINGER
-    ;; For tracking network latency and packet loss
-    (run-trailing-q-pusher ["/home/busby/env/bin/pinger"]
-                           event-q
-                           (fn [line]
-                             ;; Do something here!
-                             nil
-                             ))
 
     ;; Kickoff MyEvTest
     (run-trailing-q-pusher ["/home/busby/env/bin/evtest /dev/hotas"]
@@ -504,13 +539,13 @@
 (comment
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
 
-
+  ;; Start the logging thread for everything to report to
+  (def log-thread (spawn-log-thread log-filename)) ;; Start this first!
 
   ;; Handles incoming data from network socket, and divides
   ;; the output to event-q and cmd-rx-q based on type
-  (def serial-thread (spawn-socket-thread "/tmp/smart_desk.log"
-                                    "192.168.1.3"
-                                    5000))
+  (def serial-thread (spawn-socket-thread "192.168.1.3"
+                                          5000))
 
   ;; Handles incoming data from event-q, updates global state,
   ;; and executes any registered even handlers for a given id (source+component)
@@ -519,6 +554,9 @@
   ;; Ensures that any commands to the device across the code base are
   ;; queued and run one at a time.
   (def cmd-thread (spawn-cmd-thread))
+
+  ;; Start a thread that does PING every ping-interval milliseconds
+  (def hc-thread (spawn-hc-thread))
 
   ;; Initialize component state
   (init-comp-state)
@@ -594,8 +632,7 @@
 
 
   ;; spawn-socket-thread
-  (spawn-socket-thread "/tmp/smart_desk.log"
-                       "192.168.1.3"
+  (spawn-socket-thread "192.168.1.3"
                        5000)
 
   ;; Start processing events
@@ -655,6 +692,15 @@
   (rawcmd "SERV OPENALL")
 
 
+
+
+  ;; Gonna do this via python on desk instead
+  (run-trailing-q-pusher ["/home/busby/env/bin/pinger"]
+                         event-q
+                         (fn [line]
+                           ;; Do something here!
+                           nil
+                           ))
 
 
 
