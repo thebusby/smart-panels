@@ -189,17 +189,22 @@ class Panel:
         self.connection = serial.Serial(self.port, 115200, timeout=0)
 
         # Clear the serial buffer of any debug information
-        time.sleep(1)  # Wait to fill buffer
+        time.sleep(3.0)  # Wait to fill buffer
         _ = self.connection.readlines()  # Capture debug data and ignore
-        time.sleep(DEVICE_RESPONSE_DELAY)  # Wait to fill buffer
+        time.sleep(0.5)  # Wait to fill buffer
 
         # Grab IDENT
         self.ident = self.cmd("IDENT")
 
-        if not re.search("PANEL$", self.ident):
-            self.connection.close()
-            raise ValueError(
-                f"{self.port} identifies as '{self.ident}' and not PANEL")
+        attempt_count = 0
+        while not re.search("PANEL$", self.ident):
+            attempt_count = attempt_count + 1
+            if attempt_count > 5:
+                self.connection.close()
+                raise ValueError(
+                    f"{self.port} identifies as '{self.ident}' and not PANEL")
+            self.ident = self.cmd("IDENT")
+            time.sleep(0.5)
 
         self.mark()
 
@@ -227,8 +232,11 @@ class Panel:
         resp = self.cmd("PING")
 
         if resp != "PONG":
-            # TODO: Isn't this a failure state? Restart connection?
-            log("PING", f"DEBUG\t{time.ctime()}\tPing failed for {self.ident}")
+            log("PING",
+                f"DEBUG\t{time.ctime()}\tPing failed for {self.ident}. Response was {resp}")
+            self.close()
+            time.sleep(0.5)  # wait 500ms
+            self.open()
 
 
 def get_send_fn(conn) -> Callable[[str], None]:

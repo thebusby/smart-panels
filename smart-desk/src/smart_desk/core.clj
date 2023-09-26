@@ -1,8 +1,7 @@
 (ns smart-desk.core
   (:require [clojure.java.io :as io]
             )
-  (:import [java.net Socket SocketTimeoutException
-            ])
+  (:import [java.net Socket SocketTimeoutException])
 
   (:use bagotricks)
   (:gen-class))
@@ -423,7 +422,7 @@
                                  nil)]
           (if (= pong :pong)
             (log (str "PING\t" x "\tPASSED"))
-            (log (str "PING\t" x "\tFAILEDtNOTPONG")))
+            (log (str "PING\t" x "\tFAILEDtNOTPONG\t" pong)))
           (log (str "PING\t" x "\tFAILED\tTIMEOUT")))
 
         ;; Wait, and then loop
@@ -437,6 +436,20 @@
    ["/home/busby/env/bin/evtest"
     "--ident" "THROT"
     "/dev/input/by-id/usb-Thrustmaster_Throttle_-_HOTAS_Warthog-event-joystick"]
+   event-q
+   (fn [line]
+     (some->> line
+              split-tsv
+              (mapv caps-to-kw)
+              parse-event))))
+
+(defn spawn-stick-thread
+  "Return a thread that uses evtest to monitor HOTAS throttle for events"
+  []
+  (run-trailing-q-pusher
+   ["/home/busby/env/bin/evtest"
+    "--ident" "STICK"
+    "/dev/input/by-id/usb-Thustmaster_Joystick_-_HOTAS_Warthog-event-joystick"]
    event-q
    (fn [line]
      (some->> line
@@ -497,9 +510,29 @@
 
     ;; HOTAS event test, it's ENG OPER R UP on HOTAS
     (register-event :throt|btn-trigger-happy16
-                  (fn [{:keys [status]}]
-                    (if (= status :onn)
-                      (exec "/usr/bin/xeyes"))))
+                    (fn [{:keys [status]}]
+                      (if (= status :onn)
+                        (exec "/usr/bin/xeyes"))))
+
+    ;; Use joystick for page up/down
+    (register-event :stick|btn-base
+                    (fn [{:keys [status]}]
+                      (if (= status :onn)
+                        (exec "/usr/bin/wtype -P page_up")
+                        )))
+    (register-event :stick|btn-base3
+                    (fn [{:keys [status]}]
+                      (if (= status :onn)
+                        (exec "/usr/bin/wtype -P page_down")
+                        )))
+
+    ;; Use dial for up/down
+    (register-event :button-panel|dial-l
+                    (fn [{:keys [status]}]
+                      (condp = status
+                        :right (exec "/usr/bin/wtype -P up")
+                        :left (exec "/usr/bin/wtype -P down")
+                        )))
 
     ))
 
@@ -520,6 +553,7 @@
         event-thread (spawn-event-thread)
         cmd-thread (spawn-cmd-thread)
         hc-thread (spawn-hc-thread)
+        stick-thread (spawn-stick-thread)
         throt-thread (spawn-throt-thread)]
 
     ;; Initialize component state
@@ -570,18 +604,9 @@
   ;; Register all the default behavior
   (register-default-events)
 
-  ;; Start grabbing events from the Throttle
-  (def throt-thread (run-trailing-q-pusher
-                     ["/home/busby/env/bin/evtest"
-                      "--ident" "THROT"
-                      "/dev/input/by-id/usb-Thrustmaster_Throttle_-_HOTAS_Warthog-event-joystick"]
-                     event-q
-                     (fn [line]
-                       (some->> line
-                                split-tsv
-                                (mapv caps-to-kw)
-                                parse-event
-                                ))))
+  ;; Start grabbing events from Stick and Throttle
+  (def throt-thread (spawn-throt-thread))
+  (def stick-thread (spawn-stick-thread))
 
 
 
@@ -664,8 +689,29 @@
   ;;
 
 
+  (register-event :stick|btn-base
+                  (fn [{:keys [status]}]
+                    (if (= status :onn)
+                      (exec "/usr/bin/wtype -P page_up")
+                      )))
+  (register-event :stick|btn-base3
+                  (fn [{:keys [status]}]
+                    (if (= status :onn)
+                      (exec "/usr/bin/wtype -P page_down")
+                      )))
 
 
+  (register-event :button-panel|dial-l
+                  (fn [{:keys [status]}]
+                    (condp = status
+                      :right (exec "/usr/bin/wtype -P up")
+                      :left (exec "/usr/bin/wtype -P down")
+                      )))
+
+
+
+  (exec "/home/busby/env/bin/ydotool key 103:1 103:0")
+  (exec "/home/busby/env/bin/ydotool key 108:1 108:0")
 
 
 
@@ -718,9 +764,6 @@
 
   ;; Try this!
   (exec "/usr/bin/xeyes")
-
-
-
 
 
 ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ; ;; ;
