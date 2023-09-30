@@ -69,6 +69,7 @@ public:
 
   // Read/Write wire status
   virtual bool read() = 0;
+  virtual int readAnalog() = 0;
   virtual void write(bool) = 0;
 };
 
@@ -169,6 +170,10 @@ public:
     }
 
     return (_dataIn & (1 << pin)) > 0;
+  }
+
+  int readAnalog() {
+    return 0; // Doesn't support this
   }
 
   void write(int pin, bool state) {
@@ -1177,6 +1182,10 @@ public:
     sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
   }
 
+  bool getValue(){
+    return _state;
+  }
+
   bool setup() {
     _method->setup();
     return true;
@@ -1190,14 +1199,15 @@ private:
 
 class PotComponent : public InputComponent {
 public:
-  ToggleComponent(char* id, IOMethod* method)
+  PotComponent(char* id, IOMethod* method)
     : InputComponent(id, pot_type) {
     this->_method = method;
   }
 
   bool poll() {
     int new_state = _method->readAnalog();
-    if (_state != new_state) {
+    if (((_state - new_state) > 3)
+        || ((new_state - _state) > 3)) {
       _state = new_state;
       return true;
     }
@@ -1206,6 +1216,10 @@ public:
 
   void getMessage(char* buf) {
     sprintf(buf, "%s\t%s\t%d", id, getCTypeName(type), _state);
+  }
+
+  float getValue() {
+    return (float)_state / 1024;
   }
 
   bool setup() {
@@ -1238,6 +1252,10 @@ public:
   void getMessage(char* buf) {
     char* state_string = _state ? "ONN" : "OFF";
     sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
+  }
+
+  bool getValue() {
+    return _state;
   }
 
   bool setup() {

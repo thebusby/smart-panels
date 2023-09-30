@@ -10,7 +10,7 @@ AccelStepper stepper_right(AccelStepper::DRIVER, A2, A3); // RIGHT
 MultiStepper steppers;
 
 // Define maximum number of steps per second
-#define STEPPER_MAX_SPEED 1000
+#define STEPPER_MAX_SPEED 3500
 
 // Number of milliseconds between poll events
 #define POLL_INTERVAL 60000
@@ -19,17 +19,22 @@ MultiStepper steppers;
  * Define Panel Specific Values here
  */
 
+ToggleComponent* bigred_button = new ToggleComponent("BIG_RED", new DirectIOMethod(8, iomt_input_pullup));
+ButtonComponent* forward_button = new ButtonComponent("FORWARD", new DirectIOMethod(7, iomt_input_pullup));
+ButtonComponent* back_button = new ButtonComponent("BACK", new DirectIOMethod(6, iomt_input_pullup));
+PotComponent* speed_pot = new PotComponent("SPEED", new DirectIOMethod(A6, iomt_input));
+
 InputComponent* inputs[] =
 {
-new ButtonComponent("FORWARD", new DirectIOMethod(6, iomt_input)),
-new ButtonComponent("BACK", new DirectIOMethod(7, iomt_input)),
-new ToggleComponent("BIG_RED", new DirectIOMethod(8, iomt_input)),
-new ButtonComponent("BUTTON_0", new DirectIOMethod(9, iomt_input)),
-new ButtonComponent("BUTTON_1", new DirectIOMethod(10, iomt_input)),
-new ButtonComponent("BUTTON_2", new DirectIOMethod(11, iomt_input)),
-new ButtonComponent("BUTTON_3", new DirectIOMethod(12, iomt_input)),
-new ToggleComponent("TOG_PC", new DirectIOMethod(A4, iomt_input)),
-new PotComponent("SPEED", new DirectIOMethod(A6, iomt_input)),
+forward_button,
+back_button,
+bigred_button,
+new ButtonComponent("BUTTON_0", new DirectIOMethod(9, iomt_input_pullup)),
+new ButtonComponent("BUTTON_2", new DirectIOMethod(10, iomt_input_pullup)),
+new ButtonComponent("BUTTON_3", new DirectIOMethod(11, iomt_input_pullup)),
+new ButtonComponent("BUTTON_1", new DirectIOMethod(12, iomt_input_pullup)),
+new ToggleComponent("TOG_PC", new DirectIOMethod(A4, iomt_input_pullup)),
+speed_pot,
 NULL
 };
 
@@ -59,24 +64,45 @@ void setup() {
 }
 
 void loop() {
-  static tick timer=0;
+  // static tick timer=0;
+  static uint32_t loop_count=0;
+  static int speed=0;
 
+  int new_speed=0;
+
+  // Check panel basics on every loop
   panel->loop();
 
+  new_speed = STEPPER_MAX_SPEED * speed_pot->getValue();
+  if(new_speed != speed) {
+    speed = new_speed;
+    stepper_left.setMaxSpeed(speed);
+    stepper_right.setMaxSpeed(speed);
+  }
 
-  //   long dist = 3000;
-  //   long positions[2] = {dist, (dist * -1)};
-
-  //   steppers.moveTo(positions);
-  //   steppers.runSpeedToPosition();
-  //   delay(2000);
-
-  //   positions[0] = (dist * -1);
-  //   positions[1] = dist;
+  if(forward_button->getValue()) {
+    long dist = 1000000;
+    long positions[2] = {dist, (dist * -1)};
     
-  //   steppers.moveTo(positions);
-  //   steppers.runSpeedToPosition();
-  //   delay(2000);
+    steppers.moveTo(positions);
+
+    // Do this while the button is held down
+    while(!forward_button->poll()) {
+      steppers.run();
+    }
+  }
+
+  if(back_button->getValue()) {
+    long dist = 1000000;
+    long positions[2] = {(dist * -1), dist};
+    
+    steppers.moveTo(positions);
+
+    // Do this while the button is held down
+    while(!back_button->poll()) {
+      steppers.run();
+    }
+  }
 
   // Handle custom panel behavour 
   // if(is_tc_alert(timer)) {
