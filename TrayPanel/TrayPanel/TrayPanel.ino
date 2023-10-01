@@ -185,13 +185,15 @@ void loop() {
   }
 
   // Handle Button 0 (Open)
+  // Also zero's the tray
   if(button_0->getValue()) {
-    int32_t positions[2] = {50, 50}; // Leave a little room off the terminator switch if possible
+    int32_t dist = 1000000;
+    int32_t positions[2] = {(dist * -1), dist};
     steppers.moveTo(positions);
 
-    while(steppers.run() && !emergency_halt) {
-        // Keep doing run() until run() returns false meaning we're in position
-        // Alternatively, terminator switch and interrupt may stop us as well.
+    // Open the tray at set speed until terminator engages
+    while(!emergency_halt) {
+      steppers.run();
     }
     emergency_halt = false;
   }
