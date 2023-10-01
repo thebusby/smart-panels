@@ -17,6 +17,9 @@ int32_t button_1_pos;
 int32_t button_2_pos;
 int32_t button_3_pos;
 
+// Define an emergency exit
+//
+bool emergency_halt = false;
 
 // Define maximum number of steps per second
 #define STEPPER_MAX_SPEED 3300
@@ -70,6 +73,9 @@ Panel *panel = new Panel("TRAY_PANEL", inputs, outputs);
 // Interrupt function to activate when tray hits the terminator switches
 //
 void terminator() {
+
+  // Enable emergency halt
+  emergency_halt = true;
   
   // Reset position
   stepper_left.setCurrentPosition(0);
@@ -93,7 +99,9 @@ void setup() {
   }
  
   // Register terminator switches!
-  attachInterrupt(digitalPinToInterrupt(2), terminator, RISING);
+  attachInterrupt(digitalPinToInterrupt(2), terminator, CHANGE); // Left side
+  // attachInterrupt(digitalPinToInterrupt(3), terminator, CHANGE);
+  emergency_halt = false;
 
   // Init steppers, and add them to group
   stepper_left.setMaxSpeed(STEPPER_MAX_SPEED);
@@ -135,9 +143,10 @@ void loop() {
     steppers.moveTo(positions);
 
     // Do this while the button is held down
-    while(!forward_button->poll()) {
+    while(!forward_button->poll() && !emergency_halt) {
       steppers.run();
     }
+    emergency_halt = false;
   }
 
   // Handle Back button
@@ -148,9 +157,10 @@ void loop() {
     steppers.moveTo(positions);
 
     // Do this while the button is held down
-    while(!back_button->poll()) {
+    while(!back_button->poll() && !emergency_halt) {
       steppers.run();
     }
+    emergency_halt = false;
   }
 
   // Emergency Button
@@ -166,11 +176,12 @@ void loop() {
     steppers.moveTo(positions);
 
     // Do this while the button is off
-    while(!bigred_button->poll()) {
+    while(!bigred_button->poll() && !emergency_halt) {
       steppers.run();
       // Keep doing run() until the button is unlocked
       // Alternatively, terminator switch and interrupt may stop us as well.
     }
+    emergency_halt = false;
   }
 
   // Handle Button 0 (Open)
@@ -178,8 +189,11 @@ void loop() {
     int32_t positions[2] = {50, 50}; // Leave a little room off the terminator switch if possible
     steppers.moveTo(positions);
 
-    // Run to the zero position, or until the terminator switch disables us
-    steppers.runSpeedToPosition();
+    while(steppers.run() && !emergency_halt) {
+        // Keep doing run() until run() returns false meaning we're in position
+        // Alternatively, terminator switch and interrupt may stop us as well.
+    }
+    emergency_halt = false;
   }
 
   // Handle Button 1 (Memory)
@@ -203,10 +217,11 @@ void loop() {
     
       steppers.moveTo(positions);
 
-      while(steppers.run()) {
+      while(steppers.run() && !emergency_halt) {
         // Keep doing run() until run() returns false meaning we're in position
         // Alternatively, terminator switch and interrupt may stop us as well.
       }
+      emergency_halt = false;
     }
   }
 
@@ -231,10 +246,11 @@ void loop() {
     
       steppers.moveTo(positions);
 
-      while(steppers.run()) {
+      while(steppers.run() && !emergency_halt) {
         // Keep doing run() until run() returns false meaning we're in position
         // Alternatively, terminator switch and interrupt may stop us as well.
       }
+      emergency_halt = false;
     }
   }
 
@@ -259,27 +275,13 @@ void loop() {
     
       steppers.moveTo(positions);
 
-      while(steppers.run()) {
+      while(steppers.run() && !emergency_halt) {
         // Keep doing run() until run() returns false meaning we're in position
         // Alternatively, terminator switch and interrupt may stop us as well.
       }
+      emergency_halt = false;
     }
   }
 
-  // Handle custom panel behavour 
-  // if(is_tc_alert(timer)) {
-  //     uint16_t t = dht->get_temp();
-  //     uint16_t h = dht->get_humidity();
-  //     uint16_t c = mhz19->get_co2();
-
-  //     ssfd_tmp->display_digit(0, 12); // Add C to display
-  //     ssfd_tmp->display_digits(t, 0);
-
-      // ssfd_hum->display_digit(0, 'H'); // This doesn't work yet...
-  //     ssfd_hum->display_digits(h, 0);
-
-  //     ssfd_co2->display_digits(c, 1);
-
-  //     timer = get_tc_alert(POLL_INTERVAL);
-  //   }
+  // end loop()
 }
