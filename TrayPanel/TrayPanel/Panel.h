@@ -6,7 +6,8 @@
 
 #define SERIAL_BUFFER_SIZE 64  // 64 - "\r\n"
 
-
+// Macro to prevent compiler warning about unused parameters
+#define UNUSED(expr) do { (void)(expr); } while (0)
 
 //
 // Utility definitions
@@ -33,16 +34,16 @@ tick get_tc_alert(unsigned long millis) {
   return GLOBAL_TC + millis;
 }
 
-#define HIGHBIT_MASK(x) ((x & (1 << 31)) > 0)
+#define HIGHBIT_MASK(x) ((x & (1UL << 31)) > 0)
 bool is_tc_alert(tick t) {
 
   if (HIGHBIT_MASK(t) == HIGHBIT_MASK(GLOBAL_TC)) {
     return GLOBAL_TC > t;
 
   } else {
-    unsigned long diff = t - GLOBAL_TC;
+    uint32_t diff = t - GLOBAL_TC;
 
-    if (diff > (1 << 30))
+    if (diff > (1UL << 30))
       return !HIGHBIT_MASK(t);
     else
       return HIGHBIT_MASK(t);
@@ -267,7 +268,7 @@ enum ComponentType {
   panel_type
 };
 
-char* getCTypeName(ComponentType type) {
+const char* getCTypeName(ComponentType type) {
   switch (type) {
     case button_type:
       return "BTN";
@@ -315,15 +316,15 @@ public:
   // Called during initial Setup() phase
   virtual bool setup() = 0;
 
-  Component(char* id, ComponentType type) {
-    this->id = id;
+  Component(const char* id, ComponentType type) {
+    this->id = (char*)id;
     this->type = type;
   }
 };
 
 class InputComponent : public Component {
 public:
-  InputComponent(char* id, ComponentType type)
+  InputComponent(const char* id, ComponentType type)
     : Component(id, type){};
 
   // Checks to see if InputComponent has changed
@@ -334,7 +335,7 @@ public:
 
 class OutputComponent : public Component {
 public:
-  OutputComponent(char* id, ComponentType type)
+  OutputComponent(const char* id, ComponentType type)
     : Component(id, type){};
 
   // Provide command data to the device to perform
@@ -354,7 +355,7 @@ public:
 
 class LedComponent : public OutputComponent {
 public:
-  LedComponent(char* id, IOMethod* method)
+  LedComponent(const char* id, IOMethod* method)
     : OutputComponent(id, led_type) {
     this->_method = method;
     this->_state = false;
@@ -379,7 +380,7 @@ public:
       }
       if (strcasecmp(state_str, "TOG") == 0) {
         toggle();
-        return "ACK";
+        return (char*)"ACK";
       }
       if (strcasecmp(state_str, "FLASH") == 0) {
         int fv = 0;
@@ -395,7 +396,7 @@ public:
           _flash_interval = fv;
           _flash_timer = get_tc_alert(_flash_interval);
         } else
-          return "ERR LED FLASH value not handled";
+          return (char*)"ERR LED FLASH value not handled";
 
         new_state = true;
         state_change = true;
@@ -403,14 +404,14 @@ public:
     }
 
     if (!state_change)
-      return "ERR LED SET only takes ONN or OFF";
+      return (char*)"ERR LED SET only takes ONN or OFF";
 
     if (_state != new_state) {
       _state = new_state;
       _method->write(_state);
     }
 
-    return "ACK";
+    return (char*)"ACK";
   }
 
   void toggle() {
@@ -428,9 +429,9 @@ public:
   }
 
   char* get_state() {
-    char* state_string = _state ? "ONN" : "OFF";
+    char* state_string = _state ? (char*)"ONN" : (char*)"OFF";
     if (_flash_timer)
-      state_string = "FLASH";
+      state_string = (char*)"FLASH";
 
     return state_string;
   }
@@ -467,7 +468,7 @@ private:
 
 class SsfdComponent : public OutputComponent {
 public:
-  SsfdComponent(char* id, uint8_t clock_pin, uint8_t data_pin)
+  SsfdComponent(const char* id, uint8_t clock_pin, uint8_t data_pin)
     : OutputComponent(id, ssfd_type) {
       this->_tm1637 = new TM1637(clock_pin, data_pin);
 
@@ -606,7 +607,7 @@ private:
 
 class LCD20X4Component : public OutputComponent {
 public:
-  LCD20X4Component(char* id, uint8_t i2c_address)
+  LCD20X4Component(const char* id, uint8_t i2c_address)
     : OutputComponent(id, loglcd_type) {
       this->_lcd = new LiquidCrystal_I2C(i2c_address, 20, 4);
   }
@@ -731,7 +732,7 @@ private:
 
 class Mhz19Component : public InputComponent {
 public:
-  Mhz19Component(char* id, uint8_t pin, uint32_t interval = 60000)
+  Mhz19Component(const char* id, uint8_t pin, uint32_t interval = 60000)
     : InputComponent(id, mhz19_type) {
       this->_pin = pin;
       this->_interval = interval;
@@ -807,7 +808,7 @@ private:
 class DhtComponent : public InputComponent {
 public:
   // type is either DHT11 or DHT22
-  DhtComponent(char* id, uint8_t pin, uint8_t type, uint32_t interval = 60000)
+  DhtComponent(const char* id, uint8_t pin, uint8_t type, uint32_t interval = 60000)
     : InputComponent(id, dht_type) {
       this->_dht = new DHT(pin, type);
       this->_interval = interval;
@@ -908,7 +909,7 @@ private:
 
 class ST7920Component : public OutputComponent {
 public:
-  ST7920Component(char* id, uint8_t cs_pin)
+  ST7920Component(const char* id, uint8_t cs_pin)
     : OutputComponent(id, loglcd_type) {
       this->_cs_pin = cs_pin;
       // 12, // clock
@@ -1042,7 +1043,7 @@ private:
 
 class RGBLedComponent : public OutputComponent {
 public:
-  RGBLedComponent(char* id, IOMethod* red_method, IOMethod* green_method, IOMethod* blue_method)
+  RGBLedComponent(const char* id, IOMethod* red_method, IOMethod* green_method, IOMethod* blue_method)
     : OutputComponent(id, rgbled_type) {
     this->_red = new LedComponent("RED", red_method);
     this->_green = new LedComponent("GREEN", green_method);
@@ -1058,13 +1059,13 @@ public:
     color_name = pop_token(args, &params);
 
     if (!color_name)
-      return "ERR SET wanted color name or OFF";
+      return (char*)"ERR SET wanted color name or OFF";
 
     if (strcasecmp(color_name, "OFF") == 0) {
       _active->disable();
       _active = NULL;
 
-      return "ACK";
+      return (char*)"ACK";
     }
 
     /* Find the color */
@@ -1077,7 +1078,7 @@ public:
         return _active->set(params);
       }
 
-    return "ERR failed to find color indicated";
+    return (char*)"ERR failed to find color indicated";
   }
 
   void update() {
@@ -1114,7 +1115,7 @@ private:
 
 class EncoderComponent : public InputComponent {
 public:
-  EncoderComponent(char* id, IOMethod* clk, IOMethod* dt)
+  EncoderComponent(const char* id, IOMethod* clk, IOMethod* dt)
     : InputComponent(id, encoder_type) {
     this->_clk = clk;
     this->_dt = dt;
@@ -1130,10 +1131,10 @@ public:
 
       if (_dt->read() != _currentStateCLK) {
         _counter++;
-        _dir = "RIGHT";
+        _dir = (char*)"RIGHT";
       } else {
         _counter--;
-        _dir = "LEFT";
+        _dir = (char*)"LEFT";
       }
     }
     _lastStateCLK = _currentStateCLK;
@@ -1142,7 +1143,7 @@ public:
   }
 
   void getMessage(char* buf) {
-    sprintf(buf, "%s\t%s\t%s\t%d", id, getCTypeName(type), _dir, _counter);
+    sprintf(buf, "%s\t%s\t%s\t%d", id, getCTypeName(type), _dir == NULL ? "Nil" : _dir, _counter);
   }
 
   bool setup() {
@@ -1163,7 +1164,7 @@ private:
 
 class ToggleComponent : public InputComponent {
 public:
-  ToggleComponent(char* id, IOMethod* method)
+  ToggleComponent(const char* id, IOMethod* method)
     : InputComponent(id, toggle_type) {
     this->_method = method;
   }
@@ -1178,7 +1179,7 @@ public:
   }
 
   void getMessage(char* buf) {
-    char* state_string = _state ? "ONN" : "OFF";
+    const char* state_string = _state ? "ONN" : "OFF";
     sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
   }
 
@@ -1199,7 +1200,7 @@ private:
 
 class PotComponent : public InputComponent {
 public:
-  PotComponent(char* id, IOMethod* method)
+  PotComponent(const char* id, IOMethod* method)
     : InputComponent(id, pot_type) {
     this->_method = method;
   }
@@ -1235,7 +1236,7 @@ private:
 
 class ButtonComponent : public InputComponent {
 public:
-  ButtonComponent(char* id, IOMethod* method)
+  ButtonComponent(const char* id, IOMethod* method)
     : InputComponent(id, button_type) {
     this->_method = method;
   }
@@ -1250,7 +1251,7 @@ public:
   }
 
   void getMessage(char* buf) {
-    char* state_string = _state ? "ONN" : "OFF";
+    const char* state_string = _state ? "ONN" : "OFF";
     sprintf(buf, "%s\t%s\t%s", id, getCTypeName(type), state_string);
   }
 
@@ -1271,7 +1272,7 @@ private:
 
 class SwitchComponent : public InputComponent {
 public:
-  SwitchComponent(char* id, IOMethod** methods)
+  SwitchComponent(const char* id, IOMethod** methods)
     : InputComponent(id, switch_type) {
     this->_methods = methods;
   }
@@ -1332,7 +1333,7 @@ public:
   OutputComponent** outputs;
   char buf[SERIAL_BUFFER_SIZE];
 
-  Panel(char* id, InputComponent** inputs, OutputComponent** outputs)
+  Panel(const char* id, InputComponent** inputs, OutputComponent** outputs)
     : Component(id, panel_type) {
     this->inputs = inputs;
     this->outputs = outputs;
@@ -1365,7 +1366,7 @@ public:
  * Handle general panel logic
 */
 typedef struct cmd {
-  char* cmd_name;
+  const char* cmd_name;
   char* (*cmd_func)(Panel*, char*);
 } cmd_t;
 
@@ -1385,7 +1386,7 @@ cmd_t command[] = {
   { "DESC", com_prot_desc },
   { "SET", com_prot_set },
   { "GET", com_prot_get },
-  { 0 }
+  { 0, 0 }
 };
 
 /* Tokenize space delimited text */
@@ -1471,27 +1472,36 @@ bool Panel::loop() {
     }
   }
 
+  // Add delay, so we don't waste too many cycles
   delay(10);
+
+  return true;
 }
 
 
 char* com_prot_ident(Panel* panel, char* args) {
+  UNUSED(args);
   return panel->id;
 }
 
 char* com_prot_version(Panel* panel, char* args) {
+  UNUSED(args);
   snprintf(panel->buf, (SERIAL_BUFFER_SIZE-3), "VER\t%s\t%s", BUILD_NUMBER, BUILD_DATE);
   Serial.println(panel->buf);
   Serial.flush();
-  return "ACK";
+  return (char*)"ACK";
 }
 
 char* com_prot_ping(Panel* panel, char* args) {
-  return "PONG";
+  UNUSED(panel);
+  UNUSED(args);
+  return (char*)"PONG";
 }
 
 char* com_prot_desc(Panel* panel, char* args) {
   uint8_t i;
+
+  UNUSED(args);
 
   // Describe inputs
   for (i = 0; panel->inputs[i]; i++) {
@@ -1507,7 +1517,7 @@ char* com_prot_desc(Panel* panel, char* args) {
     Serial.flush();
   }
 
-  return "ACK";
+  return (char*)"ACK";
 }
 
 char* com_prot_set(Panel* panel, char* args) {
@@ -1521,13 +1531,13 @@ char* com_prot_set(Panel* panel, char* args) {
       if (strcasecmp(comp_name, panel->outputs[i]->id) == 0)
         break;
   } else {
-    return "ERR\tComponent name not found in SET command";
+    return (char*)"ERR\tComponent name not found in SET command";
   }
 
   if (panel->outputs[i])
     return panel->outputs[i]->set(params);
   else
-    return "ERR\tComponent not found in SET command";
+    return (char*)"ERR\tComponent not found in SET command";
 }
 
 char* com_prot_get(Panel* panel, char* args) {
@@ -1541,7 +1551,7 @@ char* com_prot_get(Panel* panel, char* args) {
       if (strcasecmp(comp_name, panel->inputs[i]->id) == 0)
         break;
   } else {
-    return "ERR\tComponent name not found in GET command";
+    return (char*)"ERR\tComponent name not found in GET command";
   }
 
   if (panel->inputs[i]) {
@@ -1550,9 +1560,9 @@ char* com_prot_get(Panel* panel, char* args) {
     Serial.flush();
 
   } else
-    return "ERR\tComponent not found in GET command";
+    return (char*)"ERR\tComponent not found in GET command";
 
-  return "ACK";
+  return (char*)"ACK";
 }
 
 #endif
