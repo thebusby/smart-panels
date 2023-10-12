@@ -129,7 +129,7 @@ void send_ping(int ping_sockfd, struct sockaddr_in *ping_addr,
 	struct ping_pkt pckt;
 	struct sockaddr_in r_addr;
 	struct timespec time_start, time_end, tfs, tfe;
-	long double rtt_msec=0, total_msec=0;
+	long double total_msec=0;
 	struct timeval tv_out;
 	tv_out.tv_sec = RECV_TIMEOUT;
 	tv_out.tv_usec = 0;
@@ -202,33 +202,45 @@ void send_ping(int ping_sockfd, struct sockaddr_in *ping_addr,
 		else
 		{
 			clock_gettime(CLOCK_MONOTONIC, &time_end);
-			
-			double timeElapsed = ((double)(time_end.tv_nsec - time_start.tv_nsec))/1000000.0;
-			rtt_msec = (time_end.tv_sec - time_start.tv_sec) * 1000.0 + timeElapsed;
+		
+      uint64_t msecs = (time_end.tv_nsec - time_start.tv_nsec) / 1000000;
+      uint64_t rtt_msec = ((time_end.tv_sec - time_start.tv_sec) * 1000) + msecs;
+			// double timeElapsed = ((double)(time_end.tv_nsec - time_start.tv_nsec))/1000000.0;
+			// long double rtt_msec = ((time_end.tv_sec - time_start.tv_sec) * 1000.0) + timeElapsed;
 			
 			// if packet was not sent, don't receive
 			if(flag)
 			{
-				if(!(pckt.hdr.type ==69 && pckt.hdr.code==0))
-				{
+        msg_received_count++;
+
+        // Ignore everything **BUT** our ICMP ping packets!
+				if(!(pckt.hdr.type ==69 && pckt.hdr.code==0)) {
 					printf("ERR\tError..Packet received with ICMP type %d code %d\n", pckt.hdr.type, pckt.hdr.code);
-				}
-				else
-				{
+
+        } else {
           int old_rec_count = samples[ (msg_count % SAMPLE_SIZE) ];
-					msg_received_count++;
 
-
-          printf("RTT\t%d\t%d\t%d\t%4.0Lf\n", (old_rec_count ? (msg_received_count - (old_rec_count + 60)) : 0), msg_received_count, msg_count, rtt_msec);
+          // printf("RTT\t%d\t%d\t%d\t%llu\n", 
+          printf("RTT\t%d\t%d\t%d\t%llu\t%llu\t%llu\t%ld\t%ld\n", 
+                 (old_rec_count ? ((old_rec_count + 60) - msg_received_count) : 0), 
+                 msg_received_count, 
+                 msg_count, 
+                 // rtt_msec);
+                 rtt_msec,
+                 time_end.tv_sec,
+                 time_start.tv_sec,
+                 time_end.tv_nsec,
+                 time_start.tv_nsec
+                 );
 					/* printf("%d bytes from %s (h: %s) (%s) msg_seq=%d ttl=%d rtt = %Lf ms.\n",
 						PING_PKT_S, ping_dom, rev_host,
 						ping_ip, msg_count,
 						ttl_val, rtt_msec); */
 
-          // Record current rec_count
-          samples[(msg_count % SAMPLE_SIZE)] = msg_received_count;
-
 				}
+
+        // Record current rec_count
+        samples[(msg_count % SAMPLE_SIZE)] = msg_received_count;
 			}
 		}
 	}
