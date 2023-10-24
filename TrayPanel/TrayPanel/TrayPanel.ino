@@ -22,7 +22,7 @@ int32_t button_3_pos;
 bool emergency_halt = false;
 
 // Define maximum number of steps per second
-#define STEPPER_MAX_SPEED 3300
+#define STEPPER_MAX_SPEED 3000
 
 // Define memory address of Button positions in EEPROM
 #define BUTTON_1_EEPROM_MEM_ADDR 0
@@ -40,7 +40,7 @@ bool emergency_halt = false;
 ToggleComponent* bigred_button  = new ToggleComponent("BIG_RED",  new DirectIOMethod(8, iomt_input_pullup));
 ButtonComponent* forward_button = new ButtonComponent("FORWARD",  new DirectIOMethod(7, iomt_input_pullup));
 ButtonComponent* back_button    = new ButtonComponent("BACK",     new DirectIOMethod(6, iomt_input_pullup));
-PotComponent*    speed_pot      = new PotComponent("SPEED",       new DirectIOMethod(A6, iomt_input));
+PotComponent*    speed_pot      = new PotComponent   ("SPEED",    new DirectIOMethod(A6, iomt_input));
 ButtonComponent* button_0       = new ButtonComponent("BUTTON_0", new DirectIOMethod(9, iomt_input_pullup));
 ButtonComponent* button_1       = new ButtonComponent("BUTTON_1", new DirectIOMethod(12, iomt_input_pullup));
 ButtonComponent* button_2       = new ButtonComponent("BUTTON_2", new DirectIOMethod(10, iomt_input_pullup));
@@ -99,8 +99,10 @@ void setup() {
   }
  
   // Register terminator switches!
-  attachInterrupt(digitalPinToInterrupt(2), terminator, CHANGE); // Left side
-  // attachInterrupt(digitalPinToInterrupt(3), terminator, CHANGE);
+  pinMode(2, INPUT_PULLUP);
+  pinMode(3, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(2), terminator, FALLING); // Left side
+  attachInterrupt(digitalPinToInterrupt(3), terminator, FALLING); // Right side
   emergency_halt = false;
 
   // Init steppers, and add them to group
@@ -132,7 +134,15 @@ void loop() {
       speed = new_speed;
       stepper_left.setMaxSpeed(speed);
       stepper_right.setMaxSpeed(speed);
+
+      //Serial.println("DEBUG");
+      //Serial.println(speed);
+      //Serial.println(emergency_halt);
+      //Serial.println(digitalRead(2));
+      //Serial.println(digitalRead(3));
+      //Serial.println(stepper_left.currentPosition());
     }
+    // Serial.println(speed);
   }
 
   // Handle Forward button
